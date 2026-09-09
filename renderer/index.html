@@ -1,0 +1,211 @@
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PokeCall</title>
+<link rel="stylesheet" href="styles.css" />
+
+<!-- ====== BARRA DE TITULO PERSONALIZADA ====== -->
+<div id="titlebar">
+  <div class="tb-left">
+    <img class="tb-logo" src="logo.png" alt="" />
+    <span class="tb-title">PokeCall</span>
+  </div>
+  <div class="tb-controls">
+    <button id="tb-min" class="tb-btn" title="Minimizar" aria-label="Minimizar">
+      <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1" y="5" width="9" height="1.2" fill="currentColor"/></svg>
+    </button>
+    <button id="tb-max" class="tb-btn" title="Maximizar" aria-label="Maximizar">
+      <svg width="11" height="11" viewBox="0 0 11 11"><rect x="1.5" y="1.5" width="8" height="8" fill="none" stroke="currentColor" stroke-width="1.2"/></svg>
+    </button>
+    <button id="tb-close" class="tb-btn tb-close" title="Fechar" aria-label="Fechar">
+      <svg width="11" height="11" viewBox="0 0 11 11"><path d="M1 1 L10 10 M10 1 L1 10" stroke="currentColor" stroke-width="1.3"/></svg>
+    </button>
+  </div>
+</div>
+
+<div id="content">
+  <!-- ====== TELA DE ENTRADA (LOBBY) ====== -->
+  <div id="lobby" class="lobby">
+    <div class="lobby-shapes" aria-hidden="true">
+      <span class="shape blob blob-y"></span>
+      <span class="shape blob blob-g"></span>
+      <span class="shape blob blob-p"></span>
+      <span class="shape ring ring-1"></span>
+      <span class="shape ring ring-2"></span>
+      <span class="shape dot dot-1"></span>
+      <span class="shape dot dot-2"></span>
+      <svg class="shape bolt bolt-1" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+      <svg class="shape bolt bolt-2" viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 3 14h7l-1 8 10-12h-7z"/></svg>
+    </div>
+    <div class="lobby-inner">
+      <div class="brand">
+        <div class="brand-logo"><img src="logo.png" alt="PokeCall" /></div>
+        <h1>PokeCall</h1>
+        <p class="tagline" id="lobby-tagline">Como você quer ser chamado?</p>
+      </div>
+
+      <!-- ETAPA 1: nome + personagem -->
+      <div id="step-name" class="step">
+        <label class="field">
+          <span>Seu nome</span>
+          <input id="inp-name" type="text" placeholder="Ex: Ash" maxlength="32" autocomplete="off" />
+        </label>
+
+        <div class="field">
+          <span>Seu personagem</span>
+          <div id="avatar-picker" class="avatar-picker"></div>
+        </div>
+
+        <button id="btn-continue" class="btn btn-primary btn-lg">Continuar</button>
+      </div>
+
+      <!-- ETAPA 2: escolher a sala -->
+      <div id="step-room" class="step hidden">
+        <p class="step-hello">Pronto, <b id="hello-name"></b>! Escolha uma sala:</p>
+        <div class="room-cards">
+          <button class="room-card" data-room="filmes">
+            <span class="room-emoji" data-icon="film"></span>
+            <span class="room-name">Sala de Filmes</span>
+            <span class="room-sub">assistir junto</span>
+          </button>
+          <button class="room-card" data-room="jogos">
+            <span class="room-emoji" data-icon="gamepad"></span>
+            <span class="room-name">Sala de Jogos</span>
+            <span class="room-sub">jogar e ver telas</span>
+          </button>
+          <button class="room-card" data-room="conversas">
+            <span class="room-emoji" data-icon="message"></span>
+            <span class="room-name">Sala de Conversas</span>
+            <span class="room-sub">só bater papo</span>
+          </button>
+        </div>
+        <button id="btn-back" class="btn-back"><span class="back-ic" data-icon="back"></span> trocar nome ou personagem</button>
+      </div>
+
+      <div id="lobby-status" class="lobby-status"></div>
+    </div>
+  </div>
+
+  <!-- ====== TELA DA CALL ====== -->
+  <div id="call" class="call hidden">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="room-badge" id="room-badge"></span>
+        <span class="room-label"><b id="room-name"></b></span>
+        <span id="conn-badge" class="badge">conectando…</span>
+      </div>
+      <div class="topbar-right">
+        <span id="peer-count" class="peer-count">1 na call</span>
+      </div>
+    </header>
+
+    <main class="stage">
+      <div id="grid" class="grid"></div>
+    </main>
+
+    <aside id="chat-panel" class="chat-panel">
+      <div class="chat-header">Chat</div>
+      <div id="chat-messages" class="chat-messages"></div>
+      <form id="chat-form" class="chat-form">
+        <input id="chat-input" type="text" placeholder="Mensagem…" maxlength="2000" autocomplete="off" />
+        <button type="submit" class="btn">Enviar</button>
+      </form>
+    </aside>
+
+    <footer class="controls">
+      <button id="btn-mic" class="ctrl" title="Microfone">
+        <span class="ctrl-icon" data-icon="mic"></span>
+        <span class="ctrl-label">Mudo</span>
+      </button>
+      <button id="btn-screen" class="ctrl" title="Compartilhar tela">
+        <span class="ctrl-icon" data-icon="screen"></span>
+        <span class="ctrl-label">Tela</span>
+      </button>
+      <button id="btn-chat" class="ctrl" title="Chat">
+        <span class="ctrl-icon" data-icon="chat"></span>
+        <span class="ctrl-label">Chat</span>
+      </button>
+      <button id="btn-settings" class="ctrl" title="Configurações">
+        <span class="ctrl-icon" data-icon="settings"></span>
+        <span class="ctrl-label">Config</span>
+      </button>
+      <button id="btn-leave" class="ctrl ctrl-danger" title="Sair">
+        <span class="ctrl-icon" data-icon="leave"></span>
+        <span class="ctrl-label">Sair</span>
+      </button>
+    </footer>
+  </div>
+</div>
+
+<!-- ====== SELETOR DE TELA/JANELA ====== -->
+<div id="source-picker" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>O que você quer compartilhar?</h2>
+      <button id="picker-close" class="modal-close">✕</button>
+    </div>
+    <div class="quality-row">
+      <label>Qualidade:
+        <select id="quality-select">
+          <option value="1080p60">1080p · 60fps (recomendado)</option>
+          <option value="1440p60">1440p · 60fps (mais nítido)</option>
+          <option value="1080p30">1080p · 30fps (economia)</option>
+          <option value="source">Resolução original · 60fps</option>
+        </select>
+      </label>
+      <label class="checkbox">
+        <input id="share-audio" type="checkbox" checked />
+        Compartilhar áudio do sistema
+      </label>
+      <label>Prioridade:
+        <select id="hint-select">
+          <option value="motion">Fluidez (jogos/vídeo)</option>
+          <option value="detail">Nitidez (texto/código)</option>
+        </select>
+      </label>
+    </div>
+    <div id="source-list" class="source-list"></div>
+  </div>
+</div>
+
+<!-- ====== CONFIGURAÇÕES ====== -->
+<div id="settings-modal" class="modal hidden">
+  <div class="modal-card modal-sm">
+    <div class="modal-header">
+      <h2>Configurações</h2>
+      <button id="settings-close" class="modal-close">✕</button>
+    </div>
+    <div class="settings-body">
+      <label class="set-field">
+        <span>Microfone (entrada)</span>
+        <select id="set-input"></select>
+      </label>
+      <label class="set-field">
+        <span>Alto-falante (saída)</span>
+        <select id="set-output"></select>
+      </label>
+      <label class="set-field">
+        <span>Volume geral · <b id="vol-label">100%</b></span>
+        <input id="set-volume" type="range" min="0" max="200" value="100" />
+      </label>
+      <p class="set-hint">O volume de cada pessoa também pode ser ajustado com o botão direito na telha dela.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ====== MENU DE CONTEXTO (volume por pessoa) ====== -->
+<div id="ctx-menu" class="ctx-menu hidden">
+  <div class="ctx-name" id="ctx-name"></div>
+  <div class="ctx-vol">
+    <span class="ctx-vol-label">Volume · <b id="ctx-vol-val">100%</b></span>
+    <input id="ctx-vol" type="range" min="0" max="200" value="100" />
+  </div>
+</div>
+
+<!-- ====== AVISO DE ATUALIZAÇÃO ====== -->
+<div id="update-toast" class="update-toast hidden">
+  <span class="update-dot"></span>
+  <span id="update-toast-text">Atualização disponível…</span>
+  <button id="update-restart" class="update-btn hidden">Reiniciar agora</button>
+</div>
+
+<script src="app.js"></script>

@@ -1,0 +1,50 @@
+{
+  "name": "pokecall",
+  "version": "1.0.0",
+  "description": "PokeCall - ligacao em grupo e compartilhamento de tela em alta qualidade",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "server": "node server/signaling.js",
+    "dist": "electron-builder",
+    "release": "electron-builder --publish always"
+  },
+  "build": {
+    "appId": "com.pokecall.app",
+    "productName": "PokeCall",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*",
+      "assets/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.ico"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nickhexenzirkel",
+        "repo": "pokecall",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8",
+    "png-to-ico": "^3.0.2",
+    "sharp": "^0.35.4"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

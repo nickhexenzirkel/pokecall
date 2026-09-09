@@ -1,0 +1,13 @@
+{
+  "name": "pokecall-signaling",
+  "version": "1.0.0",
+  "description": "Servidor de sinalizacao WebRTC do PokeCall",
+  "main": "signaling.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node signaling.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
