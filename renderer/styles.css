@@ -453,6 +453,45 @@ input[type="range"]::-webkit-slider-thumb {
 .ctx-vol-label { font-size: 12px; color: var(--text-dim); }
 .ctx-vol-label b, .set-field b { color: var(--accent); }
 
+/* ===================== VISUALIZADOR EM TELA CHEIA ===================== */
+.viewer {
+  position: fixed; inset: 0; z-index: 65;
+  background: #000;
+  display: flex; align-items: center; justify-content: center;
+}
+.viewer video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.viewer-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 16px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.6), rgba(0,0,0,0));
+  opacity: 0; transition: opacity 0.2s;
+}
+.viewer:hover .viewer-bar { opacity: 1; }
+.viewer-name { font-size: 14px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.viewer-actions { display: flex; gap: 8px; }
+.viewer-btn {
+  width: 38px; height: 38px; display: grid; place-items: center;
+  background: rgba(255,255,255,0.12); color: #fff;
+  border: none; border-radius: 10px; transition: background 0.15s;
+}
+.viewer-btn:hover { background: rgba(255,255,255,0.25); }
+.viewer-btn svg { width: 18px; height: 18px; }
+
+/* Botão de expandir na telha (aparece no hover, quando há vídeo) */
+.tile-expand {
+  position: absolute; right: 10px; top: 10px; z-index: 3;
+  width: 34px; height: 34px; display: none; place-items: center;
+  background: rgba(0,0,0,0.55); color: #fff;
+  border: none; border-radius: 9px; cursor: pointer;
+  transition: background 0.15s;
+}
+.tile-expand svg { width: 17px; height: 17px; }
+.tile-expand:hover { background: rgba(0,0,0,0.8); }
+.tile.has-video:hover .tile-expand { display: grid; }
+/* Quando há vídeo, o "AO VIVO" vai para a esquerda pra não cobrir o expandir */
+.tile.has-video .tile-badge-share { right: auto; left: 10px; top: 10px; }
+
 /* ===================== AVISO DE ATUALIZAÇÃO ===================== */
 .update-toast {
   position: fixed; right: 18px; bottom: 18px; z-index: 70;

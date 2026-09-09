@@ -101,6 +101,8 @@ const ICONS = {
   back: SVG('<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>'),
   settings: SVG('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>'),
   volume: SVG('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
+  expand: SVG('<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>'),
+  close: SVG('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
 };
 
 // Preenche todos os elementos com data-icon="nome".
@@ -704,6 +706,11 @@ function createTile(state) {
       showPeerMenu(state, e.clientX, e.clientY);
     });
   }
+
+  // Duplo-clique numa telha com vídeo -> expandir em tela cheia.
+  root.addEventListener('dblclick', () => {
+    if (root.classList.contains('has-video')) openViewer(state);
+  });
 }
 
 // Desenha a foto de perfil (ou iniciais, se ainda nao chegou o avatar) na telha.
@@ -737,6 +744,14 @@ function showVideo(state) {
     b.textContent = 'AO VIVO';
     t.root.appendChild(b);
   }
+  if (!t.root.querySelector('.tile-expand')) {
+    const ex = document.createElement('button');
+    ex.className = 'tile-expand';
+    ex.title = 'Expandir (tela cheia)';
+    ex.innerHTML = ICONS.expand;
+    ex.addEventListener('click', (e) => { e.stopPropagation(); openViewer(state); });
+    t.root.appendChild(ex);
+  }
 }
 
 function hideVideo(state) {
@@ -746,7 +761,43 @@ function hideVideo(state) {
   t.video.srcObject = null;
   const b = t.root.querySelector('.tile-badge-share');
   if (b) b.remove();
+  const ex = t.root.querySelector('.tile-expand');
+  if (ex) ex.remove();
+  // Se o visualizador estava mostrando esta pessoa, fecha.
+  if (viewerState === state) closeViewer();
 }
+
+/* ======================= VISUALIZADOR (tela cheia) ======================= */
+
+let viewerState = null;
+
+function openViewer(state) {
+  if (!state) return;
+  viewerState = state;
+  const v = $('viewer-video');
+  v.srcObject = state.videoStream;
+  v.muted = true; // o áudio já toca pelos alto-falantes; evita eco/duplicado
+  $('viewer-name').textContent = state.name;
+  $('viewer').classList.remove('hidden');
+  v.play().catch(() => {});
+}
+
+function closeViewer() {
+  $('viewer').classList.add('hidden');
+  $('viewer-video').srcObject = null;
+  viewerState = null;
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+}
+
+$('viewer-close').addEventListener('click', closeViewer);
+$('viewer-fs').addEventListener('click', () => {
+  const el = $('viewer');
+  if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
+  else el.requestFullscreen().catch(() => {});
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && !$('viewer').classList.contains('hidden')) closeViewer();
+});
 
 function attachAudio(state) {
   // Reproducao DIRETA pelo elemento <audio> (caminho confiavel).
