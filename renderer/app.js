@@ -103,7 +103,30 @@ const ICONS = {
   volume: SVG('<polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07M19.07 4.93a10 10 0 0 1 0 14.14"/>'),
   expand: SVG('<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>'),
   close: SVG('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
+  smile: SVG('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>'),
 };
+
+// Emotes do chat (arquivos em renderer/emotes/). GIFs animam sozinhos em <img>.
+const EMOTES = {
+  pikashock: 'pikashock.gif',
+  pikachuhello: 'pikachuhello.gif',
+  pikaluv: 'pikaluv.png',
+  leafeongiggle: 'leafeongiggle.gif',
+  leafeonmoney: 'leafeonmoney.gif',
+  meowthmoney: 'meowthmoney.gif',
+  bulbasaurroll: 'bulbasaurroll.gif',
+  spindawat: 'spindawat.png',
+  jigglywow: 'jigglywow.png',
+  jigglyangry: 'jigglyangry.png',
+  espeonpout: 'espeonpout.png',
+  espeonlove: 'espeonlove.png',
+  espeongg: 'espeongg.png',
+  emolgasweat: 'emolgasweat.png',
+  haunterok: 'haunterok.png',
+  sylveonsmug: 'sylveonsmug.png',
+  gengarcool: 'gengarcool.png',
+};
+function emoteSrc(id) { return `emotes/${EMOTES[id]}`; }
 
 // Preenche todos os elementos com data-icon="nome".
 function populateIcons(root = document) {
@@ -961,7 +984,7 @@ function addChat(who, text, avatar) {
   whoEl.textContent = who;
   const txt = document.createElement('span');
   txt.className = 'chat-text';
-  txt.textContent = text;
+  renderMessageContent(txt, text);
   body.append(whoEl, txt);
 
   el.append(av, body);
@@ -978,6 +1001,68 @@ function addSystemChat(text) {
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 }
+
+// Converte texto em nós: emotes (:id:) viram imagens, o resto vira texto (seguro).
+function renderMessageContent(el, text) {
+  const parts = text.split(/(:[a-z0-9_]+:)/i);
+  let emotes = 0, hasText = false;
+  for (const part of parts) {
+    if (!part) continue;
+    const m = part.match(/^:([a-z0-9_]+):$/i);
+    const id = m && m[1].toLowerCase();
+    if (id && EMOTES[id]) {
+      const img = document.createElement('img');
+      img.className = 'chat-emote';
+      img.src = emoteSrc(id);
+      img.alt = part;
+      el.appendChild(img);
+      emotes++;
+    } else {
+      el.appendChild(document.createTextNode(part));
+      if (part.trim()) hasText = true;
+    }
+  }
+  // Se a mensagem for só emote(s), mostra grande (estilo Discord).
+  if (emotes > 0 && !hasText) el.classList.add('only-emotes');
+}
+
+/* ======================= EMOTES (seletor) ======================= */
+
+(function buildEmotePicker() {
+  const panel = $('emote-panel');
+  for (const id of Object.keys(EMOTES)) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'emote-opt';
+    b.title = id;
+    const img = document.createElement('img');
+    img.src = emoteSrc(id);
+    img.alt = id;
+    img.loading = 'lazy';
+    b.appendChild(img);
+    b.addEventListener('click', () => sendEmote(id));
+    panel.appendChild(b);
+  }
+})();
+
+function sendEmote(id) {
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  const token = `:${id}:`;
+  ws.send(JSON.stringify({ type: 'chat', room: roomId, text: token }));
+  addChat(selfName, token, selectedAvatar);
+}
+
+$('btn-emote').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('emote-panel').classList.toggle('hidden');
+});
+document.addEventListener('mousedown', (e) => {
+  const panel = $('emote-panel');
+  const btn = $('btn-emote');
+  if (!panel.classList.contains('hidden') && !panel.contains(e.target) && !btn.contains(e.target)) {
+    panel.classList.add('hidden');
+  }
+});
 
 /* ======================= VOLUME POR PESSOA (botão direito) ======================= */
 
