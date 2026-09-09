@@ -43,6 +43,25 @@ function getRoom(roomId) {
   return rooms.get(roomId);
 }
 
+// Conexoes que estao "observando o lobby" (querem saber quem esta em cada sala).
+const lobbyWatchers = new Set();
+
+function lobbySnapshot() {
+  const out = {};
+  for (const [roomId, room] of rooms) {
+    out[roomId] = [];
+    for (const [, peer] of room) {
+      out[roomId].push({ name: peer.name, avatar: peer.avatar || null });
+    }
+  }
+  return out;
+}
+
+function broadcastLobby() {
+  const payload = { type: 'lobby', rooms: lobbySnapshot() };
+  for (const w of lobbyWatchers) send(w, payload);
+}
+
 function leaveRoom(ws) {
   const { roomId, peerId } = ws.meta || {};
   if (!roomId || !peerId) return;
@@ -55,6 +74,7 @@ function leaveRoom(ws) {
   }
   if (room.size === 0) rooms.delete(roomId);
   console.log(`[${roomId}] ${peerId} saiu. Restam: ${room.size}`);
+  broadcastLobby();
 }
 
 wss.on('connection', (ws) => {
@@ -69,9 +89,18 @@ wss.on('connection', (ws) => {
     }
 
     switch (msg.type) {
+      case 'watch-lobby': {
+        // Cliente no lobby: quer receber quem esta em cada sala, ao vivo.
+        ws.isLobbyWatcher = true;
+        lobbyWatchers.add(ws);
+        send(ws, { type: 'lobby', rooms: lobbySnapshot() });
+        break;
+      }
+
       case 'join': {
         const roomId = String(msg.room || 'lobby').slice(0, 64);
         const name = String(msg.name || 'Treinador').slice(0, 32);
+        const avatar = String(msg.avatar || '').slice(0, 32);
         const peerId = crypto.randomUUID();
         ws.meta = { roomId, peerId, name };
 
@@ -80,18 +109,19 @@ wss.on('connection', (ws) => {
         // Manda para quem acabou de entrar a lista de quem ja esta na sala.
         const peers = [];
         for (const [id, peer] of room) {
-          peers.push({ id, name: peer.name });
+          peers.push({ id, name: peer.name, avatar: peer.avatar || null });
         }
-        room.set(peerId, { ws, name });
+        room.set(peerId, { ws, name, avatar });
 
         send(ws, { type: 'welcome', selfId: peerId, peers });
 
         // Avisa os outros que chegou gente nova.
         for (const [id, peer] of room) {
           if (id === peerId) continue;
-          send(peer.ws, { type: 'peer-joined', id: peerId, name });
+          send(peer.ws, { type: 'peer-joined', id: peerId, name, avatar });
         }
         console.log(`[${roomId}] ${name} (${peerId}) entrou. Total: ${room.size}`);
+        broadcastLobby();
         break;
       }
 
@@ -122,8 +152,15 @@ wss.on('connection', (ws) => {
     }
   });
 
-  ws.on('close', () => leaveRoom(ws));
-  ws.on('error', () => leaveRoom(ws));
+  const cleanup = () => {
+    if (ws.isLobbyWatcher) {
+      lobbyWatchers.delete(ws);
+      ws.isLobbyWatcher = false;
+    }
+    leaveRoom(ws);
+  };
+  ws.on('close', cleanup);
+  ws.on('error', cleanup);
 });
 
 server.listen(PORT, () => {

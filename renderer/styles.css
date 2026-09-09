@@ -221,6 +221,27 @@ button { font-family: inherit; cursor: pointer; }
 .room-card .room-name { font-size: 15px; font-weight: 700; line-height: 1.25; }
 .room-card .room-sub { font-size: 12px; color: var(--text-mute); line-height: 1.25; }
 
+/* Quem está em cada sala (lobby) */
+.room-people {
+  display: flex; flex-direction: column; gap: 4px;
+  width: 100%; margin-top: 10px;
+  padding-top: 10px; border-top: 1px solid var(--border);
+  min-height: 24px;
+}
+.room-empty { font-size: 11px; color: var(--text-mute); font-style: italic; }
+.people-chip {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 12px; color: var(--text-dim);
+  max-width: 100%;
+}
+.people-chip img {
+  width: 20px; height: 20px; border-radius: 50%;
+  object-fit: cover; flex-shrink: 0;
+  background: #26272b;
+}
+.people-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.people-more { font-size: 11px; color: var(--text-mute); font-weight: 700; }
+
 /* ===================== CALL ===================== */
 .call {
   height: 100%;

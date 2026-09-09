@@ -176,6 +176,7 @@ function goToRoomStep() {
   $('step-name').classList.add('hidden');
   $('step-room').classList.remove('hidden');
   $('lobby-tagline').textContent = 'Escolha uma sala para entrar.';
+  startLobbyWatch(DEFAULT_SERVER); // mostra quem está em cada sala, ao vivo
 }
 $('btn-continue').addEventListener('click', goToRoomStep);
 $('inp-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') goToRoomStep(); });
@@ -186,7 +187,71 @@ $('btn-back').addEventListener('click', () => {
   $('step-name').classList.remove('hidden');
   $('lobby-tagline').textContent = 'Como você quer ser chamado?';
   setLobbyStatus('');
+  stopLobbyWatch();
 });
+
+// ---- Observador do lobby: quem está em cada sala ----
+let lobbyWs = null;
+
+function startLobbyWatch(server) {
+  stopLobbyWatch();
+  try {
+    lobbyWs = new WebSocket(server);
+  } catch {
+    return;
+  }
+  lobbyWs.addEventListener('open', () => lobbyWs.send(JSON.stringify({ type: 'watch-lobby' })));
+  lobbyWs.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    if (msg.type === 'lobby') renderRoomOccupancy(msg.rooms);
+  });
+}
+
+function stopLobbyWatch() {
+  if (lobbyWs) {
+    try { lobbyWs.close(); } catch {}
+    lobbyWs = null;
+  }
+}
+
+function renderRoomOccupancy(roomsData) {
+  for (const id of Object.keys(ROOMS)) {
+    const el = document.querySelector(`[data-people="${id}"]`);
+    if (!el) continue;
+    const list = (roomsData && roomsData[id]) || [];
+    el.innerHTML = '';
+    if (list.length === 0) {
+      const empty = document.createElement('span');
+      empty.className = 'room-empty';
+      empty.textContent = 'ninguém ainda';
+      el.appendChild(empty);
+      continue;
+    }
+    const shown = list.slice(0, 4);
+    for (const p of shown) {
+      const chip = document.createElement('span');
+      chip.className = 'people-chip';
+      if (p.avatar && AVATARS.includes(p.avatar)) {
+        const img = document.createElement('img');
+        img.src = avatarSrc(p.avatar);
+        img.alt = '';
+        chip.appendChild(img);
+      }
+      const nm = document.createElement('span');
+      nm.className = 'people-name';
+      nm.textContent = p.name;
+      chip.appendChild(nm);
+      el.appendChild(chip);
+    }
+    if (list.length > shown.length) {
+      const more = document.createElement('span');
+      more.className = 'people-more';
+      more.textContent = `+${list.length - shown.length}`;
+      el.appendChild(more);
+    }
+  }
+}
 
 // Clicar num card de sala entra naquela sala.
 document.querySelectorAll('.room-card').forEach((card) =>
@@ -236,6 +301,8 @@ async function join(room) {
 
   selfName = name;
   roomId = room;
+
+  stopLobbyWatch(); // a conexão da sala assume a partir daqui
 
   // Prepara o áudio (precisa de um gesto do usuário — o clique na sala serve).
   ensureAudio();

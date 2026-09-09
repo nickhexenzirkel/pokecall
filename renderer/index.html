@@ -66,16 +66,19 @@
             <span class="room-emoji" data-icon="film"></span>
             <span class="room-name">Sala de Filmes</span>
             <span class="room-sub">assistir junto</span>
+            <span class="room-people" data-people="filmes"></span>
           </button>
           <button class="room-card" data-room="jogos">
             <span class="room-emoji" data-icon="gamepad"></span>
             <span class="room-name">Sala de Jogos</span>
             <span class="room-sub">jogar e ver telas</span>
+            <span class="room-people" data-people="jogos"></span>
           </button>
           <button class="room-card" data-room="conversas">
             <span class="room-emoji" data-icon="message"></span>
             <span class="room-name">Sala de Conversas</span>
             <span class="room-sub">só bater papo</span>
+            <span class="room-people" data-people="conversas"></span>
           </button>
         </div>
         <button id="btn-back" class="btn-back"><span class="back-ic" data-icon="back"></span> trocar nome ou personagem</button>
@@ -154,9 +157,9 @@
           <option value="source">Resolução original · 60fps</option>
         </select>
       </label>
-      <label class="checkbox">
-        <input id="share-audio" type="checkbox" checked />
-        Compartilhar áudio do sistema
+      <label class="checkbox" title="Captura TODO o áudio do PC, inclusive as vozes da call — pode causar eco. Use só para filme/música.">
+        <input id="share-audio" type="checkbox" />
+        Áudio do sistema (⚠️ pode causar eco)
       </label>
       <label>Prioridade:
         <select id="hint-select">
