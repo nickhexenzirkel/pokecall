@@ -170,6 +170,11 @@ document.querySelectorAll('.room-card').forEach((card) =>
   card.addEventListener('click', () => join(card.dataset.room))
 );
 
+// Se já tem nome salvo de antes, pula a etapa 1 e vai direto para as salas.
+if (($('inp-name').value || '').trim()) {
+  goToRoomStep();
+}
+
 // Botoes da barra de titulo personalizada.
 $('tb-min').addEventListener('click', () => window.pokecall.win.minimize());
 $('tb-max').addEventListener('click', () => window.pokecall.win.maximize());
