@@ -18,8 +18,8 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1360,
     height: 860,
-    minWidth: 960,
-    minHeight: 640,
+    minWidth: 820,
+    minHeight: 560,
     backgroundColor: '#1e1f22',
     title: 'PokeCall',
     icon: path.join(__dirname, 'assets', 'icon.ico'),

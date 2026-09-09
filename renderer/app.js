@@ -881,9 +881,26 @@ function openViewer(state) {
   const img = document.getElementById('viewer-img');
   if (img) img.style.display = 'none';
   v.style.display = '';
+  v.removeAttribute('src');
+  v.controls = false;
   v.srcObject = state.videoStream;
   v.muted = true; // o áudio já toca pelos alto-falantes; evita eco/duplicado
   $('viewer-name').textContent = state.name;
+  $('viewer').classList.remove('hidden');
+  v.play().catch(() => {});
+}
+
+// Abre um VÍDEO de arquivo (do chat) em tela cheia, com controles.
+function openVideoViewer(url) {
+  const img = document.getElementById('viewer-img');
+  if (img) img.style.display = 'none';
+  const v = $('viewer-video');
+  v.style.display = '';
+  v.srcObject = null;
+  v.src = url;
+  v.muted = false;
+  v.controls = true;
+  $('viewer-name').textContent = 'Vídeo';
   $('viewer').classList.remove('hidden');
   v.play().catch(() => {});
 }
@@ -908,7 +925,11 @@ function openImageViewer(url) {
 function closeViewer() {
   $('viewer').classList.add('hidden');
   const v = $('viewer-video');
+  try { v.pause(); } catch {}
   v.srcObject = null;
+  v.removeAttribute('src');
+  v.controls = false;
+  v.load();
   v.style.display = '';
   const img = document.getElementById('viewer-img');
   if (img) { img.style.display = 'none'; img.src = ''; }
@@ -1057,8 +1078,10 @@ $('chat-form').addEventListener('submit', (e) => {
 });
 
 $('btn-chat').addEventListener('click', () => {
-  $('chat-panel').classList.toggle('hidden-panel');
+  const panel = $('chat-panel');
+  panel.classList.toggle('hidden-panel');
   $('btn-chat').classList.toggle('active');
+  if (!panel.classList.contains('hidden-panel')) $('chat-input').focus();
 });
 
 function addChat(who, text, avatar) {
@@ -1192,9 +1215,44 @@ function onDataMessage(state, data) {
 
 $('btn-attach').addEventListener('click', () => $('file-input').click());
 $('file-input').addEventListener('change', (e) => {
-  const f = e.target.files && e.target.files[0];
-  if (f) sendFile(f);
+  for (const f of e.target.files) sendFile(f);
   e.target.value = '';
+});
+
+// Impede o Electron de abrir o arquivo ao soltar fora da área certa.
+window.addEventListener('dragover', (e) => e.preventDefault());
+window.addEventListener('drop', (e) => e.preventDefault());
+
+// Arrastar e soltar fotos/vídeos no chat.
+const chatPanelEl = $('chat-panel');
+['dragenter', 'dragover'].forEach((ev) =>
+  chatPanelEl.addEventListener(ev, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    chatPanelEl.classList.add('drag-over');
+  })
+);
+['dragleave', 'drop'].forEach((ev) =>
+  chatPanelEl.addEventListener(ev, (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (ev === 'dragleave' && chatPanelEl.contains(e.relatedTarget)) return;
+    chatPanelEl.classList.remove('drag-over');
+  })
+);
+chatPanelEl.addEventListener('drop', (e) => {
+  const files = e.dataTransfer && e.dataTransfer.files;
+  if (files) for (const f of files) sendFile(f);
+});
+
+// Colar (Ctrl+V) foto/vídeo direto no chat (ex: print de tela).
+document.addEventListener('paste', (e) => {
+  if (callView.classList.contains('hidden')) return; // só dentro da call
+  const files = e.clipboardData && e.clipboardData.files;
+  if (files && files.length) {
+    e.preventDefault();
+    for (const f of files) sendFile(f);
+  }
 });
 
 async function sendFile(file) {
@@ -1276,11 +1334,19 @@ function addFileMessage(who, avatar, file) {
     img.addEventListener('click', () => openImageViewer(file.url));
     body.appendChild(img);
   } else if (mime.startsWith('video/')) {
+    const wrap = document.createElement('div');
+    wrap.className = 'chat-video-wrap';
     const vid = document.createElement('video');
     vid.className = 'chat-media';
     vid.src = file.url;
-    vid.controls = true;
-    body.appendChild(vid);
+    vid.muted = true;
+    vid.preload = 'metadata';
+    const play = document.createElement('span');
+    play.className = 'chat-play';
+    play.innerHTML = '<svg viewBox="0 0 24 24" fill="#fff"><polygon points="7 4 20 12 7 20"/></svg>';
+    wrap.append(vid, play);
+    wrap.addEventListener('click', () => openVideoViewer(file.url));
+    body.appendChild(wrap);
   } else {
     const a = document.createElement('a');
     a.className = 'chat-file-link';

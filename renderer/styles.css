@@ -245,14 +245,18 @@ button { font-family: inherit; cursor: pointer; }
 /* ===================== CALL ===================== */
 .call {
   height: 100%;
+  min-height: 0;
   display: grid;
-  grid-template-columns: 1fr 300px;
-  grid-template-rows: auto 1fr auto;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   grid-template-areas:
     "top   top"
     "stage chat"
     "ctrl  ctrl";
 }
+/* Acompanha o tamanho da janela: encolhe o chat em janelas menores. */
+@media (max-width: 1040px) { .call { grid-template-columns: minmax(0, 1fr) 260px; } }
+@media (max-width: 860px)  { .call { grid-template-columns: minmax(0, 1fr) 220px; } }
 
 .topbar {
   grid-area: top;
@@ -277,12 +281,13 @@ button { font-family: inherit; cursor: pointer; }
 .badge.bad { background: rgba(218,55,55,0.18); color: var(--danger-2); }
 .peer-count { font-size: 13px; color: var(--text-dim); }
 
-.stage { grid-area: stage; overflow: auto; padding: 16px; }
+.stage { grid-area: stage; overflow: auto; padding: 16px; min-width: 0; min-height: 0; }
 .grid {
   display: grid;
   gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
   align-content: start;
+  min-width: 0;
   height: 100%;
 }
 
@@ -376,6 +381,22 @@ img.chat-media { cursor: zoom-in; }
 .chat-file-link { color: var(--accent); font-size: 13px; margin-top: 3px; display: inline-block; word-break: break-all; }
 #viewer-img { width: 100%; height: 100%; object-fit: contain; background: #000; }
 
+/* Miniatura de vídeo no chat (clica para abrir grande) */
+.chat-video-wrap { position: relative; display: inline-block; cursor: zoom-in; margin-top: 3px; max-width: 100%; }
+.chat-video-wrap video.chat-media { margin-top: 0; display: block; }
+.chat-play { position: absolute; inset: 0; display: grid; place-items: center; pointer-events: none; }
+.chat-play svg { width: 46px; height: 46px; opacity: 0.92; filter: drop-shadow(0 2px 8px rgba(0,0,0,0.7)); }
+
+/* Área de soltar arquivos no chat */
+.chat-panel.drag-over::after {
+  content: "Solte a foto ou vídeo aqui";
+  position: absolute; inset: 8px; z-index: 45;
+  pointer-events: none;
+  display: grid; place-items: center;
+  border: 2px dashed var(--accent); border-radius: 12px;
+  background: rgba(30,31,34,0.85); color: var(--accent); font-weight: 700;
+}
+
 /* Emotes dentro das mensagens */
 .chat-emote { height: 22px; vertical-align: middle; margin: 0 1px; }
 .chat-text.only-emotes { display: block; }
@@ -419,8 +440,9 @@ img.chat-media { cursor: zoom-in; }
 /* ===================== CONTROLES ===================== */
 .controls {
   grid-area: ctrl;
-  display: flex; align-items: center; justify-content: center; gap: 14px;
-  padding: 14px;
+  display: flex; align-items: center; justify-content: center;
+  flex-wrap: wrap; gap: 10px;
+  padding: 12px;
   background: var(--bg-2);
   border-top: 1px solid var(--border);
 }
@@ -559,7 +581,9 @@ input[type="range"]::-webkit-slider-thumb {
 
 /* ===================== AVISO DE ATUALIZAÇÃO ===================== */
 .update-toast {
-  position: fixed; right: 18px; bottom: 18px; z-index: 70;
+  position: fixed; left: 50%; bottom: 92px; transform: translateX(-50%);
+  z-index: 80;
+  pointer-events: none;            /* não bloqueia cliques/digitação embaixo */
   display: flex; align-items: center; gap: 10px;
   padding: 12px 16px;
   background: var(--bg-2);
@@ -568,9 +592,10 @@ input[type="range"]::-webkit-slider-thumb {
   border-radius: 12px;
   box-shadow: 0 12px 34px rgba(0,0,0,0.5);
   font-size: 13px;
-  max-width: 380px;
+  max-width: 90vw;
   animation: toast-in 0.3s ease;
 }
+.update-toast .update-btn { pointer-events: auto; }   /* só o botão recebe clique */
 @keyframes toast-in { from { transform: translateY(20px); opacity: 0; } to { transform: none; opacity: 1; } }
 .update-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); flex-shrink: 0; animation: pulse 1.4s infinite; }
 @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
