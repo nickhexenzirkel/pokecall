@@ -29,10 +29,10 @@ const DEFAULT_SERVER = 'wss://call.centraluniko.com.br';
 
 // Presets de qualidade do compartilhamento de tela.
 const QUALITY = {
-  '1080p60': { w: 1920, h: 1080, fps: 60, bitrate: 8_000_000 },
-  '1440p60': { w: 2560, h: 1440, fps: 60, bitrate: 12_000_000 },
-  '1080p30': { w: 1920, h: 1080, fps: 30, bitrate: 5_000_000 },
-  'source':  { w: 3840, h: 2160, fps: 60, bitrate: 16_000_000 },
+  '1080p60': { w: 1920, h: 1080, fps: 60, bitrate: 4_000_000 },
+  '1440p60': { w: 2560, h: 1440, fps: 60, bitrate: 6_000_000 },
+  '1080p30': { w: 1920, h: 1080, fps: 30, bitrate: 2_500_000 },
+  'source':  { w: 3840, h: 2160, fps: 60, bitrate: 8_000_000 },
 };
 
 /* ======================= ESTADO ======================= */
@@ -52,19 +52,19 @@ const peers = new Map();
 // Metadados (avatar) recebidos antes da conexao do peer existir.
 const pendingMeta = new Map();
 
-// Audio: um grafo WebAudio para controlar volume por pessoa e volume geral.
+// Audio: reproducao direta pelo <audio> (confiavel). O WebAudio abaixo serve
+// SO para analise (indicador de quem esta falando), nao para tocar o som.
 let audioCtx = null;
-let masterGain = null;
+let masterVolume = parseFloat(localStorage.getItem('pokecall.volume') ?? '1');
 
 function ensureAudio() {
   if (audioCtx) { audioCtx.resume().catch(() => {}); return; }
-  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-  masterGain = audioCtx.createGain();
-  masterGain.gain.value = parseFloat(localStorage.getItem('pokecall.volume') ?? '1');
-  masterGain.connect(audioCtx.destination);
-  const out = localStorage.getItem('pokecall.output');
-  if (out && audioCtx.setSinkId) audioCtx.setSinkId(out).catch(() => {});
-  audioCtx.resume().catch(() => {});
+  try {
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    audioCtx.resume().catch(() => {});
+  } catch (err) {
+    console.warn('AudioContext indisponível', err);
+  }
 }
 
 /* ======================= ELEMENTOS ======================= */
@@ -280,6 +280,7 @@ function handleSignal(msg) {
       addSystemChat(`${msg.name} entrou na call.`);
       createPeer(msg.id, msg.name, msg.avatar);
       updatePeerCount();
+      updateConnBadge();
       break;
 
     case 'peer-left': {
@@ -289,6 +290,7 @@ function handleSignal(msg) {
         closePeer(msg.id);
       }
       updatePeerCount();
+      updateConnBadge();
       break;
     }
 
@@ -365,11 +367,15 @@ function createPeer(peerId, name, avatar) {
   };
 
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'connected') setBadge('ok', 'conectado');
+    console.log(`[peer ${name}] conexão: ${pc.connectionState}`);
+    if (pc.connectionState === 'connected') logSelectedCandidate(pc, name);
     if (pc.connectionState === 'failed') {
       try { pc.restartIce(); } catch {}
     }
+    updateConnBadge();
   };
+  pc.oniceconnectionstatechange = () =>
+    console.log(`[peer ${name}] ice: ${pc.iceConnectionState}`);
 
   pc.ontrack = (ev) => {
     const track = ev.track;
@@ -379,11 +385,47 @@ function createPeer(peerId, name, avatar) {
     } else {
       state.videoStream.addTrack(track);
       showVideo(state);
-      track.addEventListener('ended', () => hideVideo(state));
-      track.addEventListener('mute', () => hideVideo(state));
+      // Só esconde quando o compartilhamento realmente termina.
+      track.addEventListener('ended', () => {
+        state.videoStream.removeTrack(track);
+        if (state.videoStream.getVideoTracks().length === 0) hideVideo(state);
+      });
+      // Se começar "mudo" (sem quadros ainda), remostra quando os quadros chegam.
       track.addEventListener('unmute', () => showVideo(state));
     }
   };
+}
+
+// Diagnóstico: mostra por onde a mídia está passando (host/srflx/relay=TURN).
+async function logSelectedCandidate(pc, name) {
+  try {
+    const stats = await pc.getStats();
+    let pair = null;
+    stats.forEach((r) => {
+      if (r.type === 'candidate-pair' && (r.nominated || r.selected) && r.state === 'succeeded') pair = r;
+    });
+    if (pair) {
+      const loc = stats.get(pair.localCandidateId);
+      const rem = stats.get(pair.remoteCandidateId);
+      console.log(`[peer ${name}] mídia via local=${loc?.candidateType} remoto=${rem?.candidateType}`);
+    }
+  } catch {}
+}
+
+// Atualiza o selo de conexão com base no estado real das conexões.
+function updateConnBadge() {
+  let real = 0, connected = 0, failed = 0;
+  for (const [, st] of peers) {
+    if (!st.pc) continue;
+    real++;
+    const s = st.pc.connectionState;
+    if (s === 'connected') connected++;
+    if (s === 'failed' || s === 'disconnected') failed++;
+  }
+  if (real === 0) setBadge('', 'na sala');
+  else if (connected > 0) setBadge('ok', 'conectado');
+  else if (failed > 0) setBadge('bad', 'reconectando…');
+  else setBadge('', 'conectando…');
 }
 
 async function onPeerSignal(peerId, data) {
@@ -618,7 +660,6 @@ function enterCall() {
   const info = ROOMS[roomId] || { name: roomId, icon: 'chat' };
   $('room-name').textContent = info.name;
   $('room-badge').innerHTML = ICONS[info.icon] || '';
-  setBadge('ok', 'conectado');
   updateMicButton();
 
   const selfState = {
@@ -629,7 +670,9 @@ function enterCall() {
   };
   createTile(selfState);
   peers.set('self-ui', selfState);
+  setupSelfAnalyser(selfState);
   updatePeerCount();
+  updateConnBadge();
 }
 
 function createTile(state) {
@@ -681,9 +724,13 @@ function renderTileAvatar(state) {
 function showVideo(state) {
   const t = state.tile;
   if (!t) return;
-  t.video.srcObject = state.videoStream;
+  const v = t.video;
+  if (v.srcObject !== state.videoStream) v.srcObject = state.videoStream;
   t.root.classList.add('has-video');
-  t.video.play().catch(() => {});
+  // Garante a reprodução assim que os metadados/quadros chegam (evita tela preta).
+  const tryPlay = () => v.play().catch(() => {});
+  tryPlay();
+  v.onloadedmetadata = tryPlay;
   if (!t.root.querySelector('.tile-badge-share')) {
     const b = document.createElement('div');
     b.className = 'tile-badge-share';
@@ -702,39 +749,92 @@ function hideVideo(state) {
 }
 
 function attachAudio(state) {
-  ensureAudio();
-
-  // Elemento de audio MUDO só para manter o pipeline do WebRTC ativo
-  // (contorna um bug do Chromium com MediaStreamSource de streams remotos).
+  // Reproducao DIRETA pelo elemento <audio> (caminho confiavel).
   if (!state.audioEl) {
     state.audioEl = document.createElement('audio');
     state.audioEl.autoplay = true;
-    state.audioEl.muted = true;
     document.body.appendChild(state.audioEl);
   }
   state.audioEl.srcObject = state.audioStream;
+  applyPeerVolume(state);
+  const out = localStorage.getItem('pokecall.output');
+  if (out && state.audioEl.setSinkId) state.audioEl.setSinkId(out).catch(() => {});
   state.audioEl.play().catch(() => {});
 
-  // Toca de verdade pelo grafo WebAudio (permite volume por pessoa e geral).
-  if (!state.gain && audioCtx) {
+  // Analisador só para o indicador de "falando" (não toca som, não interfere).
+  ensureAudio();
+  if (audioCtx && !state.analyser) {
     try {
-      state.source = audioCtx.createMediaStreamSource(state.audioStream);
-      state.gain = audioCtx.createGain();
-      state.gain.gain.value = state.volume ?? 1;
-      state.source.connect(state.gain).connect(masterGain);
+      const src = audioCtx.createMediaStreamSource(state.audioStream);
+      state.analyser = audioCtx.createAnalyser();
+      state.analyser.fftSize = 512;
+      src.connect(state.analyser);
+      startSpeakingLoop();
     } catch (err) {
-      console.warn('grafo de audio', err);
-      // fallback: toca pelo proprio elemento
-      state.audioEl.muted = false;
+      console.warn('analisador', err);
     }
   }
 }
 
-// Ajusta o volume local de uma pessoa (0..2). Só afeta o que EU ouço.
+// volume final = volume da pessoa (0..1) x volume geral (0..1)
+function applyPeerVolume(state) {
+  if (state.audioEl) {
+    state.audioEl.volume = Math.max(0, Math.min(1, (state.volume ?? 1) * masterVolume));
+  }
+}
+
+// Ajusta o volume local de uma pessoa. Só afeta o que EU ouço.
 function setPeerVolume(state, v) {
   state.volume = v;
-  if (state.gain) state.gain.gain.value = v;
-  else if (state.audioEl) { state.audioEl.muted = false; state.audioEl.volume = Math.min(1, v); }
+  applyPeerVolume(state);
+}
+
+function setMasterVolume(v) {
+  masterVolume = v;
+  localStorage.setItem('pokecall.volume', String(v));
+  for (const [, st] of peers) applyPeerVolume(st);
+}
+
+// ---- Indicador de "falando" (borda no ícone, estilo Discord) ----
+let speakingLoopOn = false;
+function startSpeakingLoop() {
+  if (speakingLoopOn) return;
+  speakingLoopOn = true;
+  const buf = new Uint8Array(256);
+  const tick = () => {
+    for (const [, st] of peers) {
+      if (!st.analyser || !st.tile) continue;
+      st.analyser.getByteTimeDomainData(buf);
+      let sum = 0;
+      for (let i = 0; i < buf.length; i++) {
+        const x = (buf[i] - 128) / 128;
+        sum += x * x;
+      }
+      const rms = Math.sqrt(sum / buf.length);
+      // suavização com decaimento para não piscar
+      const now = rms > 0.045;
+      st._spk = now ? 1 : Math.max(0, (st._spk ?? 0) - 0.06);
+      const speaking = now || st._spk > 0.15;
+      if (st.tile) st.tile.root.classList.toggle('speaking', speaking);
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+
+// Cria o analisador da PRÓPRIA voz (para mostrar quando EU estou falando).
+function setupSelfAnalyser(selfState) {
+  ensureAudio();
+  if (!audioCtx || !localAudioStream.getAudioTracks().length) return;
+  try {
+    const src = audioCtx.createMediaStreamSource(localAudioStream);
+    selfState.analyser = audioCtx.createAnalyser();
+    selfState.analyser.fftSize = 512;
+    src.connect(selfState.analyser);
+    startSpeakingLoop();
+  } catch (err) {
+    console.warn('analisador próprio', err);
+  }
 }
 
 function showSelfPreview(stream) {
@@ -904,7 +1004,7 @@ async function openSettings() {
   }
 
   // Se o navegador não permitir escolher a saída, desabilita o seletor.
-  outputSel.disabled = !(audioCtx && audioCtx.setSinkId);
+  outputSel.disabled = !('setSinkId' in HTMLMediaElement.prototype);
 
   const volPct = Math.round(parseFloat(localStorage.getItem('pokecall.volume') ?? '1') * 100);
   $('set-volume').value = volPct;
@@ -916,8 +1016,7 @@ $('set-output').addEventListener('change', (e) => setOutputDevice(e.target.value
 $('set-volume').addEventListener('input', (e) => {
   const pct = parseInt(e.target.value, 10);
   $('vol-label').textContent = pct + '%';
-  localStorage.setItem('pokecall.volume', String(pct / 100));
-  if (masterGain) masterGain.gain.value = pct / 100;
+  setMasterVolume(pct / 100);
 });
 
 async function setInputDevice(deviceId) {
@@ -949,8 +1048,10 @@ async function setInputDevice(deviceId) {
 
 async function setOutputDevice(deviceId) {
   localStorage.setItem('pokecall.output', deviceId || '');
-  if (audioCtx && audioCtx.setSinkId) {
-    try { await audioCtx.setSinkId(deviceId || ''); } catch (err) { console.warn('setSinkId', err); }
+  for (const [, st] of peers) {
+    if (st.audioEl && st.audioEl.setSinkId) {
+      try { await st.audioEl.setSinkId(deviceId || ''); } catch (err) { console.warn('setSinkId', err); }
+    }
   }
 }
 

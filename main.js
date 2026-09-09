@@ -7,6 +7,11 @@ const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 
+// Corrige a "tela preta" ao RECEBER o compartilhamento de tela de outra pessoa:
+// a decodificação de vídeo por hardware (GPU) do Electron costuma falhar e
+// entregar quadros pretos. Sem aceleração, decodifica por software e funciona.
+app.disableHardwareAcceleration();
+
 let mainWindow = null;
 
 function createWindow() {
