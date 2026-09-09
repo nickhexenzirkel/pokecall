@@ -104,6 +104,7 @@ const ICONS = {
   expand: SVG('<path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/>'),
   close: SVG('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
   smile: SVG('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>'),
+  attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
 };
 
 // Emotes do chat (arquivos em renderer/emotes/). GIFs animam sozinhos em <img>.
@@ -445,6 +446,13 @@ function createPeer(peerId, name, avatar) {
       applyScreenEncoding(state.screenSender);
     }
   }
+
+  // ---- Canal de dados (envio de fotos/vídeos P2P) ----
+  // Um lado cria, o outro escuta (evita canal duplicado). É bidirecional.
+  if (!state.polite) {
+    setupDataChannel(state, pc.createDataChannel('files'));
+  }
+  pc.ondatachannel = (ev) => setupDataChannel(state, ev.channel);
 
   // ---- Negociacao perfeita ----
   pc.onnegotiationneeded = async () => {
@@ -870,6 +878,9 @@ function openViewer(state) {
   if (!state) return;
   viewerState = state;
   const v = $('viewer-video');
+  const img = document.getElementById('viewer-img');
+  if (img) img.style.display = 'none';
+  v.style.display = '';
   v.srcObject = state.videoStream;
   v.muted = true; // o áudio já toca pelos alto-falantes; evita eco/duplicado
   $('viewer-name').textContent = state.name;
@@ -877,9 +888,30 @@ function openViewer(state) {
   v.play().catch(() => {});
 }
 
+// Abre uma imagem do chat em tela cheia.
+function openImageViewer(url) {
+  const v = $('viewer-video');
+  v.style.display = 'none';
+  v.srcObject = null;
+  let img = document.getElementById('viewer-img');
+  if (!img) {
+    img = document.createElement('img');
+    img.id = 'viewer-img';
+    $('viewer').insertBefore(img, $('viewer').firstChild);
+  }
+  img.style.display = '';
+  img.src = url;
+  $('viewer-name').textContent = 'Imagem';
+  $('viewer').classList.remove('hidden');
+}
+
 function closeViewer() {
   $('viewer').classList.add('hidden');
-  $('viewer-video').srcObject = null;
+  const v = $('viewer-video');
+  v.srcObject = null;
+  v.style.display = '';
+  const img = document.getElementById('viewer-img');
+  if (img) { img.style.display = 'none'; img.src = ''; }
   viewerState = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
@@ -1130,6 +1162,139 @@ document.addEventListener('mousedown', (e) => {
     panel.classList.add('hidden');
   }
 });
+
+/* ======================= FOTOS E VÍDEOS NO CHAT (P2P) ======================= */
+
+const FILE_MAX = 50 * 1024 * 1024; // 50 MB
+const FILE_CHUNK = 16 * 1024;
+
+function setupDataChannel(state, ch) {
+  state.dc = ch;
+  ch.binaryType = 'arraybuffer';
+  ch.onmessage = (e) => onDataMessage(state, e.data);
+}
+
+function onDataMessage(state, data) {
+  if (typeof data === 'string') {
+    let msg; try { msg = JSON.parse(data); } catch { return; }
+    if (msg.t === 'meta') {
+      state.rx = { name: msg.name, mime: msg.mime, from: msg.from, avatar: msg.avatar, chunks: [] };
+    } else if (msg.t === 'end' && state.rx) {
+      const blob = new Blob(state.rx.chunks, { type: state.rx.mime || 'application/octet-stream' });
+      const url = URL.createObjectURL(blob);
+      addFileMessage(state.rx.from || state.name, state.rx.avatar || state.avatar, { url, mime: state.rx.mime, name: state.rx.name });
+      state.rx = null;
+    }
+  } else if (state.rx) {
+    state.rx.chunks.push(data);
+  }
+}
+
+$('btn-attach').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  if (f) sendFile(f);
+  e.target.value = '';
+});
+
+async function sendFile(file) {
+  if (file.size > FILE_MAX) {
+    addSystemChat(`"${file.name}" é grande demais (máx 50 MB).`);
+    return;
+  }
+  const buf = await file.arrayBuffer();
+  const meta = JSON.stringify({
+    t: 'meta', name: file.name, mime: file.type, from: selfName, avatar: selectedAvatar,
+  });
+
+  let sent = 0;
+  for (const [, st] of peers) {
+    const dc = st.dc;
+    if (!dc || dc.readyState !== 'open') continue;
+    try {
+      dc.send(meta);
+      await sendChunks(dc, buf);
+      dc.send(JSON.stringify({ t: 'end' }));
+      sent++;
+    } catch (err) {
+      console.warn('envio de arquivo falhou', err);
+    }
+  }
+
+  // Mostra para mim mesmo.
+  addFileMessage(selfName, selectedAvatar, { url: URL.createObjectURL(file), mime: file.type, name: file.name });
+  if (sent === 0) addSystemChat('Ninguém conectado para receber o arquivo ainda.');
+}
+
+function sendChunks(dc, buf) {
+  return new Promise((resolve) => {
+    const HIGH = 1024 * 1024; // segura em 1 MB de buffer
+    let offset = 0;
+    dc.bufferedAmountLowThreshold = 256 * 1024;
+    const pump = () => {
+      while (offset < buf.byteLength) {
+        if (dc.bufferedAmount > HIGH) {
+          dc.onbufferedamountlow = () => { dc.onbufferedamountlow = null; pump(); };
+          return;
+        }
+        const end = Math.min(offset + FILE_CHUNK, buf.byteLength);
+        dc.send(buf.slice(offset, end));
+        offset = end;
+      }
+      resolve();
+    };
+    pump();
+  });
+}
+
+function addFileMessage(who, avatar, file) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg';
+
+  const av = document.createElement('span');
+  av.className = 'chat-av';
+  if (avatar && AVATARS.includes(avatar)) {
+    const img = document.createElement('img');
+    img.src = avatarSrc(avatar);
+    av.appendChild(img);
+  } else {
+    av.textContent = initials(who);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'chat-body';
+  const whoEl = document.createElement('span');
+  whoEl.className = 'who';
+  whoEl.textContent = who;
+  body.appendChild(whoEl);
+
+  const mime = file.mime || '';
+  if (mime.startsWith('image/')) {
+    const img = document.createElement('img');
+    img.className = 'chat-media';
+    img.src = file.url;
+    img.addEventListener('click', () => openImageViewer(file.url));
+    body.appendChild(img);
+  } else if (mime.startsWith('video/')) {
+    const vid = document.createElement('video');
+    vid.className = 'chat-media';
+    vid.src = file.url;
+    vid.controls = true;
+    body.appendChild(vid);
+  } else {
+    const a = document.createElement('a');
+    a.className = 'chat-file-link';
+    a.href = file.url;
+    a.download = file.name || 'arquivo';
+    a.textContent = file.name || 'arquivo';
+    body.appendChild(a);
+  }
+
+  el.append(av, body);
+  const box = $('chat-messages');
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
 
 /* ======================= VOLUME POR PESSOA (botão direito) ======================= */
 

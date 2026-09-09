@@ -110,10 +110,12 @@
       <div id="chat-messages" class="chat-messages"></div>
       <div id="emote-panel" class="emote-panel hidden"></div>
       <form id="chat-form" class="chat-form">
+        <button type="button" id="btn-attach" class="chat-emote-btn" title="Enviar foto ou vídeo" data-icon="attach"></button>
         <button type="button" id="btn-emote" class="chat-emote-btn" title="Emotes" data-icon="smile"></button>
         <input id="chat-input" type="text" placeholder="Mensagem…" maxlength="2000" autocomplete="off" />
         <button type="submit" class="btn">Enviar</button>
       </form>
+      <input id="file-input" type="file" accept="image/*,video/*" style="display:none" />
     </aside>
 
     <footer class="controls">
