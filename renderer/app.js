@@ -89,7 +89,7 @@ const callView = $('call');
 
 // Personagens disponiveis. Para adicionar mais, coloque o PNG em
 // renderer/avatars/<id>.png (rode scripts/make-avatars.cjs) e liste o id aqui.
-const AVATARS = ['emolga', 'leafeon', 'sylveon', 'jigglypuff', 'gengar', 'meowth'];
+const AVATARS = ['emolga', 'leafeon', 'sylveon', 'glaceon', 'jigglypuff', 'gengar', 'meowth'];
 
 // Salas fixas.
 const ROOMS = {
