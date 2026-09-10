@@ -294,13 +294,22 @@ function showUpdateToast(text, ready) {
   $('update-restart').classList.toggle('hidden', !ready);
   $('update-toast').classList.remove('hidden');
 }
+let updateReady = false;
 if (window.pokecall.updates) {
-  window.pokecall.updates.onAvailable((v) =>
-    showUpdateToast(`Baixando atualização${v ? ' v' + v : ''}…`, false)
-  );
-  window.pokecall.updates.onDownloaded((v) =>
-    showUpdateToast(`Atualização${v ? ' v' + v : ''} pronta para instalar!`, true)
-  );
+  const dl = $('tb-download');
+  window.pokecall.updates.onAvailable((v) => {
+    showUpdateToast(`Baixando atualização${v ? ' v' + v : ''}…`, false);
+    dl.classList.remove('hidden', 'ready');
+    dl.title = 'Baixando atualização…';
+  });
+  window.pokecall.updates.onDownloaded((v) => {
+    showUpdateToast(`Atualização${v ? ' v' + v : ''} pronta para instalar!`, true);
+    updateReady = true;
+    dl.classList.remove('hidden');
+    dl.classList.add('ready');
+    dl.title = 'Atualização pronta — clique para instalar';
+  });
+  dl.addEventListener('click', () => { if (updateReady) window.pokecall.updates.restart(); });
   $('update-restart').addEventListener('click', () => window.pokecall.updates.restart());
 }
 

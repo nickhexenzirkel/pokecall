@@ -60,6 +60,9 @@ button { font-family: inherit; cursor: pointer; }
 }
 .tb-btn:hover { background: #2b2d31; color: var(--text); }
 .tb-close:hover { background: var(--danger-2); color: #fff; }
+.tb-download { color: #4ade80; }
+.tb-download:hover { background: rgba(35,165,90,0.18); color: #4ade80; }
+.tb-download.ready { animation: pulse 1.4s infinite; }
 
 #content { flex: 1; position: relative; overflow: hidden; }
 
