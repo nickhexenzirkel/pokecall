@@ -628,21 +628,38 @@ async function openSourcePicker() {
   }
 
   list.innerHTML = '';
-  for (const src of sources) {
-    const item = document.createElement('div');
-    item.className = 'source-item';
-    const img = document.createElement('img');
-    img.src = src.thumbnail;
-    const label = document.createElement('div');
-    label.className = 'src-name';
-    label.textContent = src.name;
-    item.append(img, label);
-    item.addEventListener('click', () => {
-      picker.classList.add('hidden');
-      startScreenShare(src.id);
-    });
-    list.appendChild(item);
-  }
+
+  const screens = sources.filter((s) => s.id.startsWith('screen:'));
+  const windows = sources.filter((s) => !s.id.startsWith('screen:'));
+
+  const addGroup = (title, items) => {
+    if (items.length === 0) return;
+    const h = document.createElement('div');
+    h.className = 'source-group-title';
+    h.textContent = title;
+    list.appendChild(h);
+    const grid = document.createElement('div');
+    grid.className = 'source-grid';
+    for (const src of items) {
+      const item = document.createElement('div');
+      item.className = 'source-item';
+      const img = document.createElement('img');
+      img.src = src.thumbnail;
+      const label = document.createElement('div');
+      label.className = 'src-name';
+      label.textContent = src.name;
+      item.append(img, label);
+      item.addEventListener('click', () => {
+        picker.classList.add('hidden');
+        startScreenShare(src.id);
+      });
+      grid.appendChild(item);
+    }
+    list.appendChild(grid);
+  };
+
+  addGroup('Telas inteiras — recomendado (mostra tudo e o cursor)', screens);
+  addGroup('Janelas — só um programa (não mostra o cursor)', windows);
 }
 
 $('picker-close').addEventListener('click', () => $('source-picker').classList.add('hidden'));

@@ -487,9 +487,14 @@ img.chat-media { cursor: zoom-in; }
 .quality-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; padding: 14px 20px; border-bottom: 1px solid var(--border); font-size: 13px; color: var(--text-dim); }
 .quality-row select { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 7px; padding: 6px 8px; margin-left: 6px; }
 .quality-row .checkbox { display: flex; align-items: center; gap: 6px; }
-.source-list {
+.source-list { padding: 14px 20px; overflow-y: auto; }
+.source-group-title {
+  font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px;
+  color: var(--accent); margin: 6px 0 10px;
+}
+.source-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 12px; padding: 18px 20px; overflow-y: auto;
+  gap: 12px; margin-bottom: 14px;
 }
 .source-item {
   background: var(--bg-tile); border: 2px solid transparent; border-radius: 10px;

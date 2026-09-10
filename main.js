@@ -7,10 +7,10 @@ const { app, BrowserWindow, ipcMain, desktopCapturer } = require('electron');
 const path = require('path');
 const { autoUpdater } = require('electron-updater');
 
-// Corrige a "tela preta" ao RECEBER o compartilhamento de tela de outra pessoa:
-// a decodificação de vídeo por hardware (GPU) do Electron costuma falhar e
-// entregar quadros pretos. Sem aceleração, decodifica por software e funciona.
-app.disableHardwareAcceleration();
+// OBS: NÃO desabilitar a aceleração de hardware. Isso trava/congela a captura
+// e a decodificação de vídeo no Electron (bug conhecido do desktopCapturer).
+// A "tela preta" em Netflix/Disney+/etc é DRM (resolve-se desligando a
+// aceleração de hardware NO NAVEGADOR de quem compartilha), não aqui.
 
 let mainWindow = null;
 
