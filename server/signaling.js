@@ -11,18 +11,39 @@
  */
 
 const http = require('http');
+const fs = require('fs');
+const path = require('path');
 const crypto = require('crypto');
 const { WebSocketServer } = require('ws');
+const music = require('./music');
 
 const PORT = process.env.PORT || 8080;
 
-// Um servidor HTTP simples so para health-check (util em hospedagem como Render/Railway).
+// Um servidor HTTP simples: health-check + entrega do audio das musicas.
 const server = http.createServer((req, res) => {
-  if (req.url === '/health' || req.url === '/') {
+  const url = (req.url || '').split('?')[0];
+
+  if (url === '/health' || url === '/') {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('PokeCall signaling OK');
     return;
   }
+
+  // Pagina do tocador. O app abre isso escondido, num iframe, so para o
+  // player do YouTube ter um endereco https de verdade (o embed nao aceita
+  // uma pagina aberta de arquivo local).
+  if (url === '/player.html') {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, 'player.html'));
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-cache' });
+      res.end(html);
+    } catch {
+      res.writeHead(500);
+      res.end('player.html nao encontrado');
+    }
+    return;
+  }
+
   res.writeHead(404);
   res.end();
 });
@@ -72,9 +93,257 @@ function leaveRoom(ws) {
   for (const [, peer] of room) {
     send(peer.ws, { type: 'peer-left', id: peerId });
   }
-  if (room.size === 0) rooms.delete(roomId);
+  if (room.size === 0) {
+    rooms.delete(roomId);
+    // Sala vazia: para a musica e limpa a fila.
+    const m = musicRooms.get(roomId);
+    if (m) {
+      if (m.timer) clearTimeout(m.timer);
+      musicRooms.delete(roomId);
+    }
+  }
   console.log(`[${roomId}] ${peerId} saiu. Restam: ${room.size}`);
   broadcastLobby();
+}
+
+/* ======================= MUSICA (fila por sala) ======================= *
+ * O servidor e o "Robo de Musica": guarda a fila, decide o que esta tocando
+ * e em que segundo. Cada app toca o mesmo video do YouTube escondido (so o
+ * audio) e se ajusta pela posicao que o servidor manda - entao todo mundo
+ * ouve a mesma coisa, ao mesmo tempo, e ninguem gasta upload.             */
+
+// musicRooms: Map<roomId, { queue, current, startedAt, paused, pausedPos, timer }>
+const musicRooms = new Map();
+
+function getMusic(roomId) {
+  if (!musicRooms.has(roomId)) {
+    musicRooms.set(roomId, { queue: [], current: null, startedAt: 0, paused: false, pausedPos: 0, timer: null });
+  }
+  return musicRooms.get(roomId);
+}
+
+// Posicao atual da musica, em milissegundos.
+function musicPos(m) {
+  if (!m.current) return 0;
+  if (m.paused) return m.pausedPos;
+  return Math.max(0, Date.now() - m.startedAt);
+}
+
+function musicView(roomId) {
+  const m = getMusic(roomId);
+  return {
+    type: 'music',
+    current: m.current,
+    queue: m.queue,
+    paused: m.paused,
+    posMs: musicPos(m),
+    serverNow: Date.now(),
+  };
+}
+
+function broadcastMusic(roomId) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  const payload = musicView(roomId);
+  for (const [, peer] of room) send(peer.ws, payload);
+}
+
+function musicNotice(roomId, text, kind) {
+  const room = rooms.get(roomId);
+  if (!room) return;
+  for (const [, peer] of room) send(peer.ws, { type: 'music-notice', text, kind: kind || 'info' });
+}
+
+// Agenda a troca automatica para quando a musica atual acabar.
+// (Os apps tambem avisam quando o video termina; o que chegar primeiro vale.)
+function armMusicTimer(roomId) {
+  const m = getMusic(roomId);
+  if (m.timer) { clearTimeout(m.timer); m.timer = null; }
+  if (!m.current || m.paused) return;
+  const total = (m.current.duration || 0) * 1000;
+  if (!total) return; // duracao ainda desconhecida
+  m.timer = setTimeout(() => playNext(roomId), Math.max(500, total - musicPos(m) + 1500));
+}
+
+function playNext(roomId) {
+  const m = getMusic(roomId);
+  if (m.timer) { clearTimeout(m.timer); m.timer = null; }
+  m.current = m.queue.shift() || null;
+  m.paused = false;
+  m.pausedPos = 0;
+  m.startedAt = Date.now();
+  if (m.current) armMusicTimer(roomId);
+  broadcastMusic(roomId);
+}
+
+function stopMusic(roomId) {
+  const m = getMusic(roomId);
+  if (m.timer) { clearTimeout(m.timer); m.timer = null; }
+  m.current = null;
+  m.paused = false;
+  m.pausedPos = 0;
+  m.queue = [];
+  broadcastMusic(roomId);
+}
+
+// Coloca musicas na fila.
+function enqueue(roomId, tracks, byName) {
+  const m = getMusic(roomId);
+  const aceitas = [];
+
+  for (const t of tracks) {
+    if (m.queue.some((q) => q.id === t.id)) {
+      musicNotice(roomId, `"${t.title}" já está na fila.`, 'erro');
+      continue;
+    }
+    aceitas.push({ ...t, by: byName });
+  }
+  if (!aceitas.length) return;
+
+  for (const t of aceitas) m.queue.push(t);
+
+  if (!m.current) {
+    playNext(roomId);
+    musicNotice(roomId, `${byName} colocou "${aceitas[0].title}" para tocar.`, 'ok');
+  } else {
+    broadcastMusic(roomId);
+    musicNotice(
+      roomId,
+      aceitas.length > 1
+        ? `${byName} adicionou ${aceitas.length} músicas na fila.`
+        : `${byName} adicionou "${aceitas[0].title}" na fila.`,
+      'ok'
+    );
+  }
+}
+
+async function handleMusic(ws, msg) {
+  const { roomId, name } = ws.meta || {};
+  if (!roomId || !rooms.has(roomId)) return;
+  const m = getMusic(roomId);
+
+  switch (msg.action) {
+    case 'sync':
+      send(ws, musicView(roomId));
+      break;
+
+    case 'search': {
+      const q = String(msg.query || '').slice(0, 200);
+      try {
+        send(ws, { type: 'music-results', query: q, results: await music.search(q, 6) });
+      } catch (err) {
+        send(ws, { type: 'music-notice', kind: 'erro', text: 'Busca falhou: ' + err.message });
+      }
+      break;
+    }
+
+    case 'add': {
+      const q = String(msg.query || '').slice(0, 500);
+      musicNotice(roomId, `Procurando "${q}"…`);
+      try {
+        const { tracks, note } = await music.resolve(q);
+        if (note) musicNotice(roomId, note);
+        enqueue(roomId, tracks, name);
+      } catch (err) {
+        musicNotice(roomId, 'Não deu certo: ' + err.message, 'erro');
+      }
+      break;
+    }
+
+    case 'add-track': {
+      // Veio da lista de resultados da busca: so confiamos no id.
+      const t = msg.track || {};
+      const id = String(t.id || '').replace(/[^\w-]/g, '');
+      if (!id) return;
+      enqueue(
+        roomId,
+        [{
+          id,
+          title: String(t.title || 'sem nome').slice(0, 200),
+          artist: String(t.artist || '').slice(0, 120),
+          duration: Math.max(0, Math.round(Number(t.duration) || 0)),
+          thumb: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg',
+        }],
+        name
+      );
+      break;
+    }
+
+    case 'pause':
+      if (!m.current || m.paused) return;
+      m.pausedPos = musicPos(m);
+      m.paused = true;
+      if (m.timer) { clearTimeout(m.timer); m.timer = null; }
+      broadcastMusic(roomId);
+      break;
+
+    case 'resume':
+      if (!m.current || !m.paused) return;
+      m.startedAt = Date.now() - m.pausedPos;
+      m.paused = false;
+      armMusicTimer(roomId);
+      broadcastMusic(roomId);
+      break;
+
+    case 'seek': {
+      if (!m.current) return;
+      const total = (m.current.duration || 0) * 1000;
+      let pos = Math.max(0, Math.round(Number(msg.posMs) || 0));
+      if (total) pos = Math.min(pos, Math.max(0, total - 1000));
+      if (m.paused) m.pausedPos = pos;
+      else m.startedAt = Date.now() - pos;
+      armMusicTimer(roomId);
+      broadcastMusic(roomId);
+      break;
+    }
+
+    case 'skip':
+      if (!m.current && !m.queue.length) return;
+      musicNotice(roomId, `${name} pulou a música.`);
+      playNext(roomId);
+      break;
+
+    // O app avisa a duracao assim que o player carrega o video.
+    case 'duration': {
+      const secs = Math.round(Number(msg.seconds) || 0);
+      if (!m.current || msg.id !== m.current.id || !secs || m.current.duration === secs) return;
+      m.current.duration = secs;
+      armMusicTimer(roomId);
+      broadcastMusic(roomId);
+      break;
+    }
+
+    // O video acabou no app de alguem: passa para a proxima.
+    case 'ended':
+      if (m.current && msg.id === m.current.id && !m.paused) playNext(roomId);
+      break;
+
+    // O video nao pode ser tocado fora do YouTube (ou sumiu): pula sozinho.
+    case 'failed':
+      if (!m.current || msg.id !== m.current.id) return;
+      musicNotice(roomId, `"${m.current.title}" não pode tocar fora do YouTube — pulando.`, 'erro');
+      playNext(roomId);
+      break;
+
+    case 'remove': {
+      const i = Math.round(Number(msg.index));
+      if (i >= 0 && i < m.queue.length) {
+        const [out] = m.queue.splice(i, 1);
+        musicNotice(roomId, `${name} tirou "${out.title}" da fila.`);
+        broadcastMusic(roomId);
+      }
+      break;
+    }
+
+    case 'stop':
+      if (!m.current && !m.queue.length) return;
+      musicNotice(roomId, `${name} parou a música.`);
+      stopMusic(roomId);
+      break;
+
+    default:
+      break;
+  }
 }
 
 wss.on('connection', (ws) => {
@@ -120,6 +389,9 @@ wss.on('connection', (ws) => {
           if (id === peerId) continue;
           send(peer.ws, { type: 'peer-joined', id: peerId, name, avatar });
         }
+        // Se ja tem musica tocando na sala, quem chegou entra no mesmo ponto.
+        send(ws, musicView(roomId));
+
         console.log(`[${roomId}] ${name} (${peerId}) entrou. Total: ${room.size}`);
         broadcastLobby();
         break;
@@ -133,6 +405,11 @@ wss.on('connection', (ws) => {
         const target = room.get(msg.to);
         if (!target) return;
         send(target.ws, { type: 'signal', from: peerId, data: msg.data });
+        break;
+      }
+
+      case 'music': {
+        handleMusic(ws, msg).catch((err) => console.warn('[musica]', err.message));
         break;
       }
 

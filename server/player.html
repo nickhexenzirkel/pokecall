@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8" />
+<title>PokeCall — tocador</title>
+<style>
+  html, body { margin: 0; background: #000; overflow: hidden; }
+  #yt { width: 320px; height: 180px; border: 0; }
+</style>
+</head>
+<body>
+<!--
+  Tocador do "Robo de Musica" do PokeCall.
+  Esta pagina fica escondida dentro do app (iframe fora da tela). Ela existe
+  porque o player do YouTube precisa de um endereco https de verdade — o app
+  roda de arquivo local e o embed nao aceita isso.
+  O app conversa com ela por postMessage; so o audio interessa.
+-->
+<div id="yt"></div>
+
+<script>
+(function () {
+  var player = null;
+  var pronto = false;
+  var idAtual = null;
+  var pendente = null;   // comando que chegou antes do player ficar pronto
+  var volume = 60;
+  var duracaoAvisada = 0;
+
+  function paraOApp(obj) {
+    try { parent.postMessage(Object.assign({ pc: 1 }, obj), '*'); } catch (e) {}
+  }
+
+  // ---- Carrega a API do YouTube ----
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+
+  window.onYouTubeIframeAPIReady = function () {
+    player = new YT.Player('yt', {
+      host: 'https://www.youtube-nocookie.com',
+      height: '180',
+      width: '320',
+      playerVars: {
+        autoplay: 1,
+        controls: 0,
+        disablekb: 1,
+        modestbranding: 1,
+        playsinline: 1,
+        rel: 0,
+        fs: 0,
+        origin: location.origin,
+        widget_referrer: location.origin,
+      },
+      events: {
+        onReady: function () {
+          pronto = true;
+          player.setVolume(volume);
+          paraOApp({ ev: 'ready' });
+          if (pendente) { var p = pendente; pendente = null; executar(p); }
+        },
+        onStateChange: function (e) {
+          if (e.data === YT.PlayerState.ENDED) paraOApp({ ev: 'ended', id: idAtual });
+          if (e.data === YT.PlayerState.PLAYING) avisarDuracao();
+          paraOApp({ ev: 'state', state: e.data, id: idAtual });
+        },
+        onError: function (e) {
+          // 101/150 = o dono nao deixa tocar fora do YouTube; 100 = sumiu.
+          paraOApp({ ev: 'error', id: idAtual, code: e.data });
+        },
+      },
+    });
+  };
+
+  function avisarDuracao() {
+    if (!player || !player.getDuration) return;
+    var d = Math.round(player.getDuration() || 0);
+    if (d && d !== duracaoAvisada) {
+      duracaoAvisada = d;
+      paraOApp({ ev: 'duration', id: idAtual, seconds: d });
+    }
+  }
+
+  function executar(msg) {
+    if (!pronto || !player) { pendente = msg; return; }
+
+    switch (msg.cmd) {
+      case 'load':
+        idAtual = msg.id;
+        duracaoAvisada = 0;
+        player.loadVideoById({ videoId: msg.id, startSeconds: (msg.posMs || 0) / 1000 });
+        if (msg.paused) setTimeout(function () { try { player.pauseVideo(); } catch (e) {} }, 350);
+        break;
+
+      case 'play':
+        try { player.playVideo(); } catch (e) {}
+        break;
+
+      case 'pause':
+        try { player.pauseVideo(); } catch (e) {}
+        break;
+
+      case 'seek':
+        try { player.seekTo((msg.ms || 0) / 1000, true); } catch (e) {}
+        break;
+
+      case 'volume':
+        volume = Math.max(0, Math.min(100, Math.round(msg.v)));
+        try { player.setVolume(volume); } catch (e) {}
+        break;
+
+      case 'stop':
+        idAtual = null;
+        try { player.stopVideo(); } catch (e) {}
+        break;
+    }
+  }
+
+  window.addEventListener('message', function (ev) {
+    var msg = ev.data;
+    if (!msg || typeof msg !== 'object' || !msg.cmd) return;
+    executar(msg);
+  });
+
+  // Manda a posicao de tempos em tempos: o app usa para conferir o atraso.
+  setInterval(function () {
+    if (!pronto || !player || !idAtual || !player.getCurrentTime) return;
+    try {
+      paraOApp({ ev: 'time', id: idAtual, ms: Math.round(player.getCurrentTime() * 1000) });
+      avisarDuracao();
+    } catch (e) {}
+  }, 2000);
+})();
+</script>
+</body>
+</html>

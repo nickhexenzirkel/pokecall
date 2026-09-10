@@ -33,6 +33,9 @@ function createWindow() {
       // Não desacelerar quando a janela perde o foco (Alt+Tab) — senão a
       // captura/compartilhamento de tela congela e fica preto para quem assiste.
       backgroundThrottling: false,
+      // O Robô de Música toca sozinho (o player fica escondido), sem exigir
+      // que cada pessoa clique em algo para o som começar.
+      autoplayPolicy: 'no-user-gesture-required',
     },
   });
 

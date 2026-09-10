@@ -164,6 +164,10 @@
         <span class="ctrl-icon" data-icon="film"></span>
         <span class="ctrl-label">Vídeo</span>
       </button>
+      <button id="btn-music" class="ctrl" title="Tocar música para a sala inteira">
+        <span class="ctrl-icon" data-icon="music"></span>
+        <span class="ctrl-label">Música</span>
+      </button>
       <button id="btn-chat" class="ctrl" title="Chat">
         <span class="ctrl-icon" data-icon="chat"></span>
         <span class="ctrl-label">Chat</span>
@@ -251,6 +255,60 @@
     </div>
   </div>
 </div>
+
+<!-- ====== MÚSICA (fila da sala) ====== -->
+<div id="music-modal" class="modal hidden">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h2>Música</h2>
+      <button id="music-close" class="modal-close">✕</button>
+    </div>
+
+    <div class="music-body">
+      <form id="music-form" class="music-search">
+        <input id="music-input" type="text" autocomplete="off" maxlength="500"
+               placeholder="Nome da música, ou link do YouTube / Spotify…" />
+        <button type="submit" class="btn btn-primary">Tocar</button>
+        <button type="button" id="music-search-btn" class="btn" title="Ver várias opções">Buscar</button>
+      </form>
+      <p id="music-notice" class="music-notice hidden"></p>
+
+      <div id="music-results" class="music-list hidden"></div>
+
+      <div id="music-now" class="music-now hidden">
+        <img id="music-thumb" class="music-thumb" alt="" />
+        <div class="music-now-info">
+          <div id="music-title" class="music-now-title"></div>
+          <div id="music-sub" class="music-now-sub"></div>
+          <div class="music-seek">
+            <span id="music-time" class="music-time">0:00</span>
+            <input id="music-progress" type="range" min="0" max="1000" value="0" />
+            <span id="music-dur" class="music-time">0:00</span>
+          </div>
+          <div class="music-buttons">
+            <button id="music-play" class="btn" title="Pausar/continuar">Pausar</button>
+            <button id="music-skip" class="btn" title="Próxima da fila">Pular</button>
+            <button id="music-stop" class="btn" title="Parar e limpar a fila">Parar</button>
+          </div>
+        </div>
+      </div>
+
+      <div id="music-queue-wrap" class="hidden">
+        <div class="music-section">Na fila</div>
+        <div id="music-queue" class="music-list"></div>
+      </div>
+
+      <label class="set-field music-vol">
+        <span>Volume da música · <b id="music-vol-label">60%</b></span>
+        <input id="music-volume" type="range" min="0" max="100" value="60" />
+      </label>
+      <p class="set-hint">O volume da música é só seu — cada pessoa ajusta o dela. Quem entrar depois já começa a ouvir no mesmo ponto. Se você compartilhar o <b>áudio do sistema</b>, desligue a música ou ela vai dobrada para os outros.</p>
+    </div>
+  </div>
+</div>
+
+<!-- Tocador do Robô de Música: fica fora da tela, só o som importa. -->
+<iframe id="music-frame" class="music-frame" title="tocador" allow="autoplay"></iframe>
 
 <!-- ====== MENU DE CONTEXTO (volume por pessoa) ====== -->
 <div id="ctx-menu" class="ctx-menu hidden">

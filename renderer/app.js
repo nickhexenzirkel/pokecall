@@ -218,6 +218,7 @@ const ICONS = {
   send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
   theater: SVG('<polyline points="14 4 20 4 20 10"/><polyline points="10 20 4 20 4 14"/><line x1="20" y1="4" x2="13.5" y2="10.5"/><line x1="4" y1="20" x2="10.5" y2="13.5"/>'),
   pin: SVG('<line x1="12" y1="17" x2="12" y2="22"/><path d="M9 3h6l-1 6 3.5 3.5a1 1 0 0 1-.7 1.7H6.2a1 1 0 0 1-.7-1.7L9 9z"/>'),
+  music: SVG('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
   lock: SVG('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
 };
 
@@ -559,6 +560,20 @@ function handleSignal(msg) {
       if (msg.from !== selfId) {
         addChat(msg.name, msg.text, peers.get(msg.from)?.avatar);
       }
+      break;
+
+    // ---- Música da sala ----
+    case 'music':
+      applyMusic(msg);
+      break;
+
+    case 'music-notice':
+      showMusicNotice(msg.text, msg.kind);
+      if (msg.kind === 'ok' || msg.kind === 'erro') addSystemChat('♪ ' + msg.text);
+      break;
+
+    case 'music-results':
+      renderMusicResults(msg.results || []);
       break;
   }
 }
@@ -2016,4 +2031,327 @@ function leave() {
 
   // Recarrega para voltar ao lobby limpo.
   window.location.reload();
+}
+
+/* ======================= MÚSICA DA SALA (Robô de Música) ======================= *
+ * Um "robô" entra na call e toca música para todo mundo. Ele não manda áudio
+ * pela internet: cada app abre o mesmo vídeo do YouTube ESCONDIDO (só o som) e
+ * o servidor diz o que está tocando e em que segundo — então todos ouvem a
+ * mesma coisa, ao mesmo tempo, sem gastar upload de ninguém.                   */
+
+const MUSIC_HTTP = DEFAULT_SERVER.replace(/^ws/, 'http');
+const musicFrame = $('music-frame');
+
+let musicVolume = parseFloat(localStorage.getItem('pokecall.musicVolume') ?? '0.6');
+let musicState = { current: null, queue: [], paused: false };
+let musicAnchor = null;    // onde o servidor diz que a música está
+let musicPlayerMs = 0;     // onde o player daqui realmente está
+let musicPlayerAt = 0;
+let musicPlayerPronto = false;
+let musicUiTimer = null;
+let musicDragging = false;
+let musicBot = null;       // telha do robô na grade
+
+function sendMusic(action, extra) {
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: 'music', action, ...(extra || {}) }));
+  }
+}
+
+function toPlayer(cmd, extra) {
+  if (!musicFrame.contentWindow) return;
+  musicFrame.contentWindow.postMessage({ cmd, ...(extra || {}) }, '*');
+}
+
+// A página escondida do tocador só é carregada quando alguém põe música.
+function ensurePlayer() {
+  if (musicFrame.src) return;
+  musicFrame.src = MUSIC_HTTP + '/player.html';
+}
+
+/* ---- Recados do tocador escondido ---- */
+
+window.addEventListener('message', (ev) => {
+  const msg = ev.data;
+  if (!msg || typeof msg !== 'object' || !msg.pc) return;
+
+  switch (msg.ev) {
+    case 'ready':
+      musicPlayerPronto = true;
+      toPlayer('volume', { v: Math.round(musicVolume * 100) });
+      if (musicState.current) aplicarNoPlayer(true);
+      break;
+
+    case 'time':
+      musicPlayerMs = msg.ms;
+      musicPlayerAt = performance.now();
+      corrigirAtraso();
+      break;
+
+    case 'duration':
+      sendMusic('duration', { id: msg.id, seconds: msg.seconds });
+      break;
+
+    case 'ended':
+      sendMusic('ended', { id: msg.id });
+      break;
+
+    case 'error':
+      sendMusic('failed', { id: msg.id, code: msg.code });
+      break;
+  }
+});
+
+/* ---- Sincronia ---- */
+
+// Onde a música DEVERIA estar agora, segundo o servidor.
+function expectedMusicMs() {
+  if (!musicAnchor) return 0;
+  if (musicAnchor.paused) return musicAnchor.posMs;
+  return musicAnchor.posMs + (performance.now() - musicAnchor.at);
+}
+
+// Se o tocador daqui ficou para trás (ou na frente), acerta o ponto.
+function corrigirAtraso() {
+  if (!musicState.current || musicState.paused) return;
+  const aqui = musicPlayerMs + (performance.now() - musicPlayerAt);
+  if (Math.abs(aqui - expectedMusicMs()) > 2500) {
+    toPlayer('seek', { ms: expectedMusicMs() });
+  }
+}
+
+function aplicarNoPlayer(trocouDeMusica) {
+  const cur = musicState.current;
+
+  if (!cur) {
+    toPlayer('stop');
+    return;
+  }
+
+  ensurePlayer();
+  if (!musicPlayerPronto) return; // assim que ficar pronto ele se ajusta sozinho
+
+  if (trocouDeMusica) {
+    musicPlayerMs = expectedMusicMs();
+    musicPlayerAt = performance.now();
+    toPlayer('load', { id: cur.id, posMs: expectedMusicMs(), paused: musicState.paused });
+    return;
+  }
+
+  if (musicState.paused) toPlayer('pause');
+  else { toPlayer('seek', { ms: expectedMusicMs() }); toPlayer('play'); }
+}
+
+function applyMusic(msg) {
+  const antes = musicState.current && musicState.current.id;
+  musicState = { current: msg.current || null, queue: msg.queue || [], paused: !!msg.paused };
+  musicAnchor = { posMs: msg.posMs || 0, at: performance.now(), paused: !!msg.paused };
+
+  const trocou = antes !== (msg.current && msg.current.id);
+  if (msg.current) ensurePlayer();
+  aplicarNoPlayer(trocou);
+  renderMusicBot();
+  renderMusic();
+}
+
+// Confere o atraso de vez em quando, mesmo sem recado do tocador.
+setInterval(corrigirAtraso, 8000);
+
+function setMusicVolume(v) {
+  musicVolume = v;
+  localStorage.setItem('pokecall.musicVolume', String(v));
+  toPlayer('volume', { v: Math.round(v * 100) });
+}
+
+/* ---- A telha do Robô de Música, no meio da galera ---- */
+
+function renderMusicBot() {
+  const cur = musicState.current;
+
+  if (!cur) {
+    if (musicBot && musicBot.tile) {
+      musicBot.tile.root.remove();
+      musicBot = null;
+    }
+    $('btn-music').classList.remove('active');
+    return;
+  }
+
+  if (!musicBot) {
+    musicBot = { id: 'music-bot', name: 'Robô de Música', avatar: null, tile: null };
+    createTile(musicBot);
+    musicBot.tile.root.classList.add('tile-bot');
+    musicBot.tile.avatar.innerHTML = ICONS.music;
+    musicBot.tile.root.addEventListener('click', openMusic);
+    musicBot.tile.root.title = 'Clique para ver a fila de músicas';
+  }
+
+  musicBot.tile.nameTag.textContent = '♪ ' + cur.title;
+  musicBot.tile.root.classList.toggle('speaking', !musicState.paused);
+  $('btn-music').classList.toggle('active', !musicState.paused);
+}
+
+/* ---- Painel ---- */
+
+function fmtTime(sec) {
+  sec = Math.max(0, Math.round(sec));
+  return Math.floor(sec / 60) + ':' + String(sec % 60).padStart(2, '0');
+}
+
+function openMusic() {
+  $('music-modal').classList.remove('hidden');
+  sendMusic('sync');
+  renderMusic();
+  if (!musicUiTimer) musicUiTimer = setInterval(updateMusicProgress, 300);
+  setTimeout(() => $('music-input').focus(), 30);
+}
+
+function closeMusic() {
+  $('music-modal').classList.add('hidden');
+  if (musicUiTimer) { clearInterval(musicUiTimer); musicUiTimer = null; }
+}
+
+$('btn-music').addEventListener('click', () => {
+  if ($('music-modal').classList.contains('hidden')) openMusic();
+  else closeMusic();
+});
+$('music-close').addEventListener('click', closeMusic);
+$('music-modal').addEventListener('click', (e) => { if (e.target === $('music-modal')) closeMusic(); });
+
+$('music-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const q = $('music-input').value.trim();
+  if (!q) return;
+  $('music-input').value = '';
+  $('music-results').classList.add('hidden');
+  ensurePlayer();
+  sendMusic('add', { query: q });
+  showMusicNotice('Procurando…');
+});
+
+$('music-search-btn').addEventListener('click', () => {
+  const q = $('music-input').value.trim();
+  if (!q) return;
+  sendMusic('search', { query: q });
+  showMusicNotice('Buscando opções…');
+});
+
+$('music-play').addEventListener('click', () => sendMusic(musicState.paused ? 'resume' : 'pause'));
+$('music-skip').addEventListener('click', () => sendMusic('skip'));
+$('music-stop').addEventListener('click', () => sendMusic('stop'));
+
+$('music-volume').addEventListener('input', (e) => {
+  const pct = parseInt(e.target.value, 10);
+  $('music-vol-label').textContent = pct + '%';
+  setMusicVolume(pct / 100);
+});
+
+const musicProg = $('music-progress');
+musicProg.addEventListener('pointerdown', () => { musicDragging = true; });
+musicProg.addEventListener('change', () => {
+  musicDragging = false;
+  const cur = musicState.current;
+  if (!cur || !cur.duration) return;
+  sendMusic('seek', { posMs: (parseInt(musicProg.value, 10) / 1000) * cur.duration * 1000 });
+});
+
+function showMusicNotice(text, kind) {
+  const el = $('music-notice');
+  el.textContent = text;
+  el.className = 'music-notice' + (kind === 'erro' ? ' erro' : kind === 'ok' ? ' ok' : '');
+  clearTimeout(showMusicNotice._t);
+  showMusicNotice._t = setTimeout(() => el.classList.add('hidden'), 8000);
+}
+
+function updateMusicProgress() {
+  const cur = musicState.current;
+  if (!cur) return;
+  const pos = expectedMusicMs() / 1000;
+  $('music-time').textContent = fmtTime(pos);
+  $('music-dur').textContent = cur.duration ? fmtTime(cur.duration) : '--:--';
+  if (!musicDragging && cur.duration) {
+    musicProg.value = Math.min(1000, Math.round((pos / cur.duration) * 1000));
+  }
+}
+
+function musicRow(track, acao, rotulo) {
+  const row = document.createElement('div');
+  row.className = 'music-row';
+
+  const img = document.createElement('img');
+  img.className = 'music-row-thumb';
+  if (track.thumb) img.src = track.thumb;
+  img.alt = '';
+
+  const info = document.createElement('div');
+  info.className = 'music-row-info';
+  const t = document.createElement('div');
+  t.className = 'music-row-title';
+  t.textContent = track.title;
+  const s = document.createElement('div');
+  s.className = 'music-row-sub';
+  s.textContent = [track.artist, track.duration ? fmtTime(track.duration) : '', track.by ? 'pedida por ' + track.by : '']
+    .filter(Boolean).join(' · ');
+  info.append(t, s);
+
+  const btn = document.createElement('button');
+  btn.className = 'btn music-row-btn';
+  btn.textContent = rotulo;
+  btn.addEventListener('click', acao);
+
+  row.append(img, info, btn);
+  return row;
+}
+
+function renderMusic() {
+  const now = $('music-now');
+  const cur = musicState.current;
+
+  if (cur) {
+    now.classList.remove('hidden');
+    const thumb = $('music-thumb');
+    if (cur.thumb) { thumb.src = cur.thumb; thumb.classList.remove('hidden'); }
+    else thumb.classList.add('hidden');
+    $('music-title').textContent = cur.title;
+    $('music-sub').textContent = [cur.artist, cur.by ? 'pedida por ' + cur.by : ''].filter(Boolean).join(' · ');
+    $('music-play').textContent = musicState.paused ? 'Continuar' : 'Pausar';
+    updateMusicProgress();
+  } else {
+    now.classList.add('hidden');
+  }
+
+  const wrap = $('music-queue-wrap');
+  const list = $('music-queue');
+  list.textContent = '';
+  if (musicState.queue.length) {
+    wrap.classList.remove('hidden');
+    musicState.queue.forEach((t, i) => {
+      list.appendChild(musicRow(t, () => sendMusic('remove', { index: i }), 'Tirar'));
+    });
+  } else {
+    wrap.classList.add('hidden');
+  }
+
+  const volPct = Math.round(musicVolume * 100);
+  $('music-volume').value = volPct;
+  $('music-vol-label').textContent = volPct + '%';
+}
+
+function renderMusicResults(results) {
+  const box = $('music-results');
+  box.textContent = '';
+  if (!results.length) {
+    showMusicNotice('Não achei nada com esse nome.', 'erro');
+    box.classList.add('hidden');
+    return;
+  }
+  for (const t of results) {
+    box.appendChild(musicRow(t, () => {
+      ensurePlayer();
+      sendMusic('add-track', { track: t });
+      box.classList.add('hidden');
+      $('music-input').value = '';
+    }, 'Tocar'));
+  }
+  box.classList.remove('hidden');
 }

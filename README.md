@@ -5,6 +5,7 @@ App de desktop (Electron) para ficar em ligação com os amigos e **compartilhar
 - 🎙️ Voz em grupo (WebRTC P2P, com cancelamento de eco e ruído)
 - 🖥️ Compartilhamento de tela até **1440p / 60fps** com bitrate alto
 - 🔊 Compartilha também o áudio do sistema (jogo/música)
+- 🎵 **Robô de Música**: peça pelo nome ou cole link do YouTube/Spotify e toca para a sala inteira, sincronizado
 - 💬 Chat de texto
 - 🔗 Salas por código — quem digita o mesmo código entra junto
 
@@ -91,7 +92,9 @@ pokecall/
 │  ├─ styles.css        # tema escuro
 │  └─ app.js            # WebRTC (mesh + negociação perfeita), sinalização, UI
 ├─ server/
-│  ├─ signaling.js      # servidor de sinalização WebSocket
+│  ├─ signaling.js      # servidor de sinalização WebSocket + fila de música
+│  ├─ music.js          # acha a música (nome, link do YouTube ou do Spotify)
+│  ├─ player.html       # tocador escondido (player do YouTube, só o áudio)
 │  └─ package.json
 └─ package.json
 ```
@@ -108,3 +111,4 @@ pokecall/
 
 - Mesh não escala para dezenas de pessoas (precisaria de um servidor SFU).
 - O TURN público de exemplo não é confiável — configure o seu.
+- A música toca pelo player do YouTube em cada PC: quem não tem Premium pega anúncio de vez em quando (o app reajusta a sincronia depois), e clipes que o dono bloqueou fora do YouTube são pulados automaticamente.

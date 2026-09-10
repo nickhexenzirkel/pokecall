@@ -177,6 +177,26 @@ Abra <https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/>,
 coloque `turn:call.SEUDOMINIO.com:3478` com usuário/senha e clique em *Gather
 candidates*. Se aparecer uma linha do tipo **`relay`**, seu TURN está OK.
 
+## Robô de Música (atualizar o servidor)
+
+O Robô de Música **não precisa instalar nada novo** no VPS: o servidor só
+procura o vídeo no YouTube e diz para os apps o que tocar e em que segundo.
+O áudio sai no PC de cada pessoa, pelo player oficial do YouTube (escondido).
+
+Para atualizar o servidor depois de mexer no código:
+
+```bash
+cd /opt/pokecall
+git pull                 # ou envie os arquivos de novo (Passo 2)
+pm2 restart pokecall
+curl -s https://call.SEUDOMINIO.com.br/player.html | head -3   # deve devolver HTML
+```
+
+Se o `player.html` não abrir, a música não toca — confira se o nginx/apache
+está encaminhando **tudo** para o Node (e não só o WebSocket).
+
+---
+
 ## Manutenção rápida
 
 ```bash
