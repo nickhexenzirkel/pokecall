@@ -115,7 +115,7 @@ const musicRooms = new Map();
 
 function getMusic(roomId) {
   if (!musicRooms.has(roomId)) {
-    musicRooms.set(roomId, { queue: [], current: null, startedAt: 0, paused: false, pausedPos: 0, timer: null });
+    musicRooms.set(roomId, { queue: [], current: null, startedAt: 0, paused: false, pausedPos: 0, timer: null, importando: 0 });
   }
   return musicRooms.get(roomId);
 }
@@ -214,6 +214,7 @@ function playNext(roomId, anunciar) {
 
 function stopMusic(roomId) {
   const m = getMusic(roomId);
+  m.importando = (m.importando || 0) + 1;   // cancela playlist que estava entrando
   if (m.timer) { clearTimeout(m.timer); m.timer = null; }
   m.current = null;
   m.paused = false;
@@ -222,14 +223,15 @@ function stopMusic(roomId) {
   broadcastMusic(roomId);
 }
 
-// Coloca musicas na fila.
-function enqueue(roomId, tracks, byName) {
+// Coloca musicas na fila. Com `silencioso`, nao fala nada no chat — usado
+// quando estamos importando uma playlist inteira (senao vira spam).
+function enqueue(roomId, tracks, byName, silencioso) {
   const m = getMusic(roomId);
   const aceitas = [];
 
   for (const t of tracks) {
-    if (m.queue.some((q) => q.id === t.id)) {
-      musicNotice(roomId, `"${t.title}" já está na fila.`, 'erro');
+    if (m.queue.some((q) => q.id === t.id) || (m.current && m.current.id === t.id)) {
+      if (!silencioso) musicNotice(roomId, `"${t.title}" já está na fila.`, 'erro');
       continue;
     }
     aceitas.push({ ...t, by: byName });
@@ -237,6 +239,13 @@ function enqueue(roomId, tracks, byName) {
   if (!aceitas.length) return;
 
   for (const t of aceitas) m.queue.push(t);
+
+  if (silencioso) {
+    // Se nao tinha nada tocando, a primeira da playlist ja comeca.
+    if (!m.current) playNext(roomId, true);
+    else broadcastMusic(roomId);
+    return;
+  }
 
   if (!m.current) {
     playNext(roomId);
@@ -254,6 +263,40 @@ function enqueue(roomId, tracks, byName) {
       { act: 'queue', who: byName, title: aceitas[0].title, artist: aceitas[0].artist, count: aceitas.length }
     );
   }
+}
+
+const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Playlist do Spotify: o Spotify nao deixa tocar o audio dele, entao
+// procuramos cada faixa no YouTube. Fazemos isso uma de cada vez, em ordem,
+// para nao martelar o YouTube — a primeira ja comeca a tocar na hora e as
+// outras vao caindo na fila.
+async function importarPlaylist(roomId, pendente, quem) {
+  const m = getMusic(roomId);
+  const token = ++m.importando;
+  const total = pendente.itens.length;
+
+  musicNotice(roomId, `${quem} mandou a ${pendente.origem} "${pendente.nome}" (${total} músicas).`, 'ok', {
+    act: 'list', who: quem, title: pendente.nome, count: total, origem: pendente.origem,
+  });
+
+  let achadas = 0;
+  for (const item of pendente.itens) {
+    // Alguem parou a musica ou mandou outra playlist: abandona esta.
+    if (m.importando !== token || !musicRooms.has(roomId) || !rooms.has(roomId)) return;
+    try {
+      const melhor = await music.searchBest(item);
+      if (melhor) { enqueue(roomId, [melhor], quem, true); achadas++; }
+    } catch (err) {
+      console.warn('[musica] playlist:', item.query, err.message);
+    }
+    await espera(250);
+  }
+
+  if (m.importando !== token) return;
+  musicNotice(roomId, `"${pendente.nome}": ${achadas} de ${total} músicas na fila.`, 'ok', {
+    act: 'list-done', title: pendente.nome, count: achadas, total,
+  });
 }
 
 async function handleMusic(ws, msg) {
@@ -280,9 +323,10 @@ async function handleMusic(ws, msg) {
       const q = String(msg.query || '').slice(0, 500);
       musicNotice(roomId, `Procurando "${q}"…`);
       try {
-        const { tracks, note } = await music.resolve(q);
-        if (note) musicNotice(roomId, note);
-        enqueue(roomId, tracks, name);
+        const res = await music.resolve(q);
+        if (res.note) musicNotice(roomId, res.note);
+        if (res.pendente) importarPlaylist(roomId, res.pendente, name).catch((e) => console.warn(e.message));
+        else enqueue(roomId, res.tracks, name);
       } catch (err) {
         musicNotice(roomId, 'Não deu certo: ' + err.message, 'erro');
       }

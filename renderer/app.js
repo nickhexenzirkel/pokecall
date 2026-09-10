@@ -2254,6 +2254,16 @@ function corpoDoDj(dj, textoCru) {
       if (dj.count > 1) partes.push(pedaco(' e mais ' + (dj.count - 1), 'dj-artista'));
       break;
 
+    case 'list':
+      partes.push(quem, pedaco(' mandou a ' + (dj.origem || 'playlist') + ' '), musica);
+      partes.push(pedaco(' · ' + dj.count + ' músicas — procurando cada uma…', 'dj-artista'));
+      break;
+
+    case 'list-done':
+      partes.push(pedaco('Fila pronta: '), musica);
+      partes.push(pedaco(' · ' + dj.count + ' de ' + dj.total + ' músicas', 'dj-artista'));
+      break;
+
     case 'now':
       partes.push(pedaco('Tocando agora '), musica);
       if (dj.artist) partes.push(pedaco(' · ' + dj.artist, 'dj-artista'));

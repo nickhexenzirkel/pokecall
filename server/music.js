@@ -18,6 +18,7 @@ const { execFile } = require('child_process');
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 
 const RE_YT = /(?:youtube\.com\/(?:watch\?[^\s]*v=|shorts\/|live\/|embed\/)|youtu\.be\/)([\w-]{6,})/i;
+const RE_YT_LIST = /[?&]list=([\w-]+)/i;
 const RE_SPOTIFY = /open\.spotify\.com\/(?:intl-[a-z]+\/)?(track|album|playlist)\/([A-Za-z0-9]+)/i;
 
 /* ======================= HTTP simples ======================= */
@@ -144,6 +145,134 @@ async function search(query, n = 6) {
   return searchYtdlp(query, n).catch(() => []);
 }
 
+/* ======================= Playlist do YouTube ======================= */
+
+// O YouTube mudou o formato da pagina de playlist: hoje cada item vem num
+// "lockupViewModel". Lemos os dois formatos (o novo e o antigo).
+function trackFromLockup(v) {
+  const id = String(v.contentId || '');
+  if (!/^[\w-]{6,}$/.test(id)) return null;
+
+  const textos = [];
+  JSON.stringify(v.metadata || {}, (k, val) => {
+    if (k === 'content' && typeof val === 'string' && val.trim()) textos.push(val.trim());
+    return val;
+  });
+
+  let dur = '';
+  JSON.stringify(v, (k, val) => {
+    if (!dur && k === 'text' && typeof val === 'string' && /^(\d+:)?\d{1,2}:\d{2}$/.test(val)) dur = val;
+    return val;
+  });
+
+  const canal = textos[1] && !/visualiza|views|Colaboradores|Contributors/i.test(textos[1]) ? textos[1] : '';
+
+  return {
+    id,
+    title: textos[0] || 'sem nome',
+    artist: canal,
+    duration: parseLength(dur),
+    thumb: 'https://i.ytimg.com/vi/' + id + '/mqdefault.jpg',
+  };
+}
+
+async function youtubePlaylist(listId, limite = 100) {
+  const html = await get('https://www.youtube.com/playlist?list=' + encodeURIComponent(listId));
+  const m = html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s);
+  if (!m) throw new Error('nao consegui abrir essa playlist');
+
+  const achados = [];
+  JSON.parse(m[1], (k, v) => {
+    if (k === 'lockupViewModel' && v && v.contentId) {
+      const t = trackFromLockup(v);
+      if (t) achados.push(t);
+    } else if (k === 'playlistVideoRenderer' && v && v.videoId) {
+      achados.push(trackFromRenderer(v)); // formato antigo
+    }
+    return v;
+  });
+
+  const vistos = new Set();
+  return achados.filter((t) => (vistos.has(t.id) ? false : vistos.add(t.id))).slice(0, limite);
+}
+
+/* ======================= Playlist / album do Spotify ======================= */
+
+// A pagina de "embed" do Spotify traz a lista de faixas pronta, sem precisar
+// de chave de API. Como o Spotify nao deixa tocar o audio dele, cada faixa
+// vira uma busca no YouTube depois (feita aos poucos, na ordem).
+async function spotifyList(tipo, id, limite = 100) {
+  const html = await get('https://open.spotify.com/embed/' + tipo + '/' + id);
+  const m = html.match(/<script id="__NEXT_DATA__" type="application\/json">(.+?)<\/script>/s);
+  if (!m) throw new Error('nao consegui abrir essa ' + (tipo === 'album' ? 'álbum' : 'playlist'));
+
+  let nome = '';
+  let lista = null;
+  JSON.parse(m[1], (k, v) => {
+    if (k === 'trackList' && Array.isArray(v) && !lista) lista = v;
+    if (k === 'name' && typeof v === 'string' && !nome) nome = v;
+    return v;
+  });
+
+  if (!lista || !lista.length) throw new Error('essa lista está vazia ou é privada');
+
+  const itens = lista.slice(0, limite).map((t) => {
+    const titulo = String(t.title || '').trim();
+    const artista = String(t.subtitle || '').split(',')[0].trim();
+    return {
+      title: titulo,
+      artist: artista,
+      duration: Math.round(Number(t.duration || 0) / 1000),
+      query: [titulo, artista].filter(Boolean).join(' '),
+    };
+  }).filter((it) => it.query);
+
+  return { nome: nome || (tipo === 'album' ? 'álbum' : 'playlist'), itens };
+}
+
+/* ======================= Escolher a melhor versao ======================= */
+
+// Coisas que quase nunca sao a musica que a pessoa quer.
+const LIXO = /(tradu|legendad|lyric|letra|karaok|cover|reac[çc]|ao vivo|\blive\b|sped up|slowed|reverb|nightcore|8d audio|tutorial|piano|instrumental)/i;
+
+// Dá uma nota para cada resultado do YouTube, comparando com a faixa que
+// veio do Spotify. A duracao e o sinal mais forte: a versao certa tem
+// praticamente o mesmo tempo.
+function nota(resultado, alvo) {
+  let n = 0;
+  const titulo = (resultado.title || '').toLowerCase();
+  const canal = (resultado.artist || '').toLowerCase();
+  const artista = (alvo.artist || '').toLowerCase();
+  const musica = (alvo.title || '').toLowerCase();
+
+  if (artista && (canal.includes(artista) || artista.includes(canal))) n += 3;
+  if (artista && titulo.includes(artista)) n += 1;
+  if (musica && titulo.includes(musica)) n += 2;
+  if (LIXO.test(titulo)) n -= 4;
+  if (/official|oficial|audio|áudio/i.test(titulo)) n += 1;
+
+  if (alvo.duration && resultado.duration) {
+    const dif = Math.abs(resultado.duration - alvo.duration);
+    if (dif <= 5) n += 4;
+    else if (dif <= 15) n += 2;
+    else if (dif > 45) n -= 3;
+  }
+  return n;
+}
+
+// Procura e devolve a versao que mais parece com a faixa pedida.
+async function searchBest(alvo) {
+  const achados = await search(alvo.query || [alvo.title, alvo.artist].filter(Boolean).join(' '), 5);
+  if (!achados.length) return null;
+  let melhor = achados[0];
+  let melhorNota = nota(achados[0], alvo);
+  for (const r of achados.slice(1)) {
+    const n = nota(r, alvo);
+    if (n > melhorNota) { melhor = r; melhorNota = n; }
+  }
+  return melhor;
+}
+
 /* ======================= Dados de um video ======================= */
 
 // oEmbed publico: da o titulo e o canal sem precisar de chave de API.
@@ -194,7 +323,7 @@ async function spotifyQuery(url) {
   } catch {}
   const q = [title, artist].filter(Boolean).join(' ').trim();
   if (!q) throw new Error('nao consegui ler o nome dessa musica no Spotify');
-  return q;
+  return { q, title, artist };
 }
 
 /* ======================= Resolver o que a pessoa pediu ======================= */
@@ -206,15 +335,28 @@ async function resolve(input) {
 
   const sp = text.match(RE_SPOTIFY);
   if (sp) {
-    if (sp[1] !== 'track') throw new Error('por enquanto so link de MUSICA do Spotify (album e playlist ainda nao)');
-    const q = await spotifyQuery(text);
-    const achados = await search(q, 1);
-    if (!achados.length) throw new Error('nao achei essa musica do Spotify no YouTube');
-    return { tracks: achados, note: 'Spotify: achei "' + achados[0].title + '" no YouTube' };
+    // Playlist ou album: pega a lista de faixas e procura cada uma no
+    // YouTube depois, aos poucos (quem faz isso e o servidor da sala).
+    if (sp[1] !== 'track') {
+      const { nome, itens } = await spotifyList(sp[1], sp[2]);
+      return { pendente: { nome, itens, origem: sp[1] === 'album' ? 'álbum' : 'playlist' } };
+    }
+    const { q, title, artist } = await spotifyQuery(text);
+    const melhor = await searchBest({ query: q, title, artist });
+    if (!melhor) throw new Error('nao achei essa musica do Spotify no YouTube');
+    return { tracks: [melhor], note: 'Spotify: achei "' + melhor.title + '" no YouTube' };
   }
 
   const yt = text.match(RE_YT);
   if (yt) return { tracks: [await videoInfo(yt[1])] };
+
+  // Playlist do YouTube (link sem video, so com a lista)
+  const lista = text.match(RE_YT_LIST);
+  if (lista && /youtube\.com|youtu\.be/i.test(text)) {
+    const tracks = await youtubePlaylist(lista[1]);
+    if (!tracks.length) throw new Error('essa playlist está vazia ou é privada');
+    return { tracks, note: 'playlist do YouTube com ' + tracks.length + ' músicas' };
+  }
 
   if (/^https?:\/\//i.test(text)) throw new Error('esse link nao e do YouTube nem do Spotify');
 
@@ -223,4 +365,4 @@ async function resolve(input) {
   return { tracks: achados };
 }
 
-module.exports = { search, resolve, videoInfo };
+module.exports = { search, searchBest, resolve, videoInfo, youtubePlaylist, spotifyList };
