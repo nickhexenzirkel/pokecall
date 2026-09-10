@@ -848,3 +848,10 @@ input[type="range"]::-webkit-slider-thumb {
 .tile-bot .tile-avatar { background: linear-gradient(145deg, var(--accent), #e0a800); color: #2a2100; }
 .tile-bot .tile-avatar svg { width: 46%; height: 46%; }
 .tile-bot .tile-name { max-width: 92%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Arrastar musicas da fila (tipo Spotify) */
+.music-row-drag { cursor: grab; }
+.music-row-drag:active { cursor: grabbing; }
+.music-grip { color: var(--text-mute); font-size: 13px; letter-spacing: -3px; padding-right: 2px; flex: none; user-select: none; }
+.music-row.arrastando { opacity: 0.45; border: 1px dashed var(--accent); }
+.music-row-drag:hover .music-grip { color: var(--accent); }

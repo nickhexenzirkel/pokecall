@@ -325,6 +325,21 @@ async function handleMusic(ws, msg) {
       playNext(roomId);
       break;
 
+    // Arrastar uma música para outro lugar da fila.
+    // Vem pelo id (e nao pela posicao) para nao embaralhar se duas pessoas
+    // mexerem na fila ao mesmo tempo.
+    case 'move': {
+      const de = m.queue.findIndex((t) => t.id === msg.id);
+      let para = Math.round(Number(msg.to));
+      if (de < 0 || isNaN(para)) return;
+      para = Math.max(0, Math.min(m.queue.length - 1, para));
+      if (de === para) return;
+      const [movida] = m.queue.splice(de, 1);
+      m.queue.splice(para, 0, movida);
+      broadcastMusic(roomId);
+      break;
+    }
+
     case 'remove': {
       const i = Math.round(Number(msg.index));
       if (i >= 0 && i < m.queue.length) {

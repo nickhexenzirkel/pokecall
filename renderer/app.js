@@ -2274,9 +2274,20 @@ function updateMusicProgress() {
   }
 }
 
-function musicRow(track, acao, rotulo) {
+function musicRow(track, acao, rotulo, arrastavel) {
   const row = document.createElement('div');
   row.className = 'music-row';
+
+  if (arrastavel) {
+    row.draggable = true;
+    row.dataset.id = track.id;
+    row.classList.add('music-row-drag');
+    const alca = document.createElement('span');
+    alca.className = 'music-grip';
+    alca.title = 'Arraste para mudar a ordem';
+    alca.textContent = '⋮⋮';
+    row.appendChild(alca);
+  }
 
   const img = document.createElement('img');
   img.className = 'music-row-thumb';
@@ -2303,7 +2314,58 @@ function musicRow(track, acao, rotulo) {
   return row;
 }
 
+/* ---- Arrastar para mudar a ordem da fila (tipo Spotify) ---- */
+
+let arrastando = null;
+
+// Descobre entre quais linhas o cursor está, para soltar no lugar certo.
+function linhaDepoisDoCursor(lista, y) {
+  const outras = [...lista.querySelectorAll('.music-row:not(.arrastando)')];
+  for (const linha of outras) {
+    const r = linha.getBoundingClientRect();
+    if (y < r.top + r.height / 2) return linha;
+  }
+  return null;
+}
+
+$('music-queue').addEventListener('dragstart', (e) => {
+  const linha = e.target.closest('.music-row');
+  if (!linha) return;
+  arrastando = linha;
+  linha.classList.add('arrastando');
+  e.dataTransfer.effectAllowed = 'move';
+  // O Firefox/Chromium só começa o arrasto se algo for escrito aqui.
+  try { e.dataTransfer.setData('text/plain', linha.dataset.id); } catch {}
+});
+
+$('music-queue').addEventListener('dragover', (e) => {
+  if (!arrastando) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const lista = $('music-queue');
+  const depois = linhaDepoisDoCursor(lista, e.clientY);
+  if (depois) lista.insertBefore(arrastando, depois);
+  else lista.appendChild(arrastando);
+});
+
+$('music-queue').addEventListener('drop', (e) => e.preventDefault());
+
+$('music-queue').addEventListener('dragend', () => {
+  if (!arrastando) return;
+  const linha = arrastando;
+  arrastando = null;
+  linha.classList.remove('arrastando');
+
+  const nova = [...$('music-queue').children].indexOf(linha);
+  const antiga = musicState.queue.findIndex((t) => t.id === linha.dataset.id);
+  if (nova >= 0 && nova !== antiga) sendMusic('move', { id: linha.dataset.id, to: nova });
+  else renderMusic(); // desistiu no meio: volta a ordem de verdade
+});
+
 function renderMusic() {
+  // Enquanto alguém está arrastando, não redesenha por baixo da mão dela.
+  if (arrastando) return;
+
   const now = $('music-now');
   const cur = musicState.current;
 
@@ -2326,7 +2388,7 @@ function renderMusic() {
   if (musicState.queue.length) {
     wrap.classList.remove('hidden');
     musicState.queue.forEach((t, i) => {
-      list.appendChild(musicRow(t, () => sendMusic('remove', { index: i }), 'Tirar'));
+      list.appendChild(musicRow(t, () => sendMusic('remove', { index: i }), 'Tirar', true));
     });
   } else {
     wrap.classList.add('hidden');
