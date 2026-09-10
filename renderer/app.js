@@ -506,7 +506,7 @@ function createPeer(peerId, name, avatar) {
     const track = ev.track;
     if (track.kind === 'audio') {
       state.audioStream.addTrack(track);
-      attachAudio(state);
+      addPeerAudioTrack(state, track);
     } else {
       state.videoStream.addTrack(track);
       showVideo(state);
@@ -1021,38 +1021,46 @@ function notifyViewer(name, text) {
   viewerToastTimer = setTimeout(() => t.classList.add('hidden'), 5000);
 }
 
-function attachAudio(state) {
+// Toca UMA faixa de áudio de um participante. Chamado para CADA faixa
+// (microfone e áudio da tela chegam como faixas separadas). Tocar cada uma
+// pelo WebAudio garante que o áudio da tela também sai, e sem eco.
+function addPeerAudioTrack(state, track) {
   ensureAudio();
 
-  // Elemento de áudio MUDO só para manter o pipeline do WebRTC vivo
-  // (contorna bug do Chromium com MediaStreamSource de streams remotos).
-  // MUDO = não sai som por ele, então NÃO é capturado pelo "áudio do sistema".
+  // Elemento MUDO só mantém o pipeline do WebRTC vivo (bug do Chromium).
+  // Mudo = não sai som por ele, então NÃO é capturado pelo "áudio do sistema".
   if (!state.audioEl) {
     state.audioEl = document.createElement('audio');
     state.audioEl.autoplay = true;
     state.audioEl.muted = true;
     document.body.appendChild(state.audioEl);
+    state.audioEl.srcObject = state.audioStream;
+    state.audioEl.play().catch(() => {});
   }
-  state.audioEl.srcObject = state.audioStream;
-  state.audioEl.play().catch(() => {});
 
-  // O som DE VERDADE sai pelo WebAudio. Esse caminho NÃO é capturado pela
-  // gravação de áudio do sistema -> acaba com o eco de quem compartilha.
-  if (audioCtx && masterGain && !state.gain) {
-    try {
-      state.source = audioCtx.createMediaStreamSource(state.audioStream);
+  if (audioCtx && masterGain) {
+    // Ganho por pessoa (uma vez): -> alto-falantes.
+    if (!state.gain) {
       state.gain = audioCtx.createGain();
       state.gain.gain.value = state.volume ?? 1;
-      state.analyser = audioCtx.createAnalyser();
-      state.analyser.fftSize = 512;
-      state.source.connect(state.gain);
-      state.gain.connect(masterGain);      // -> alto-falantes (via masterGain)
-      state.gain.connect(state.analyser);  // -> indicador de "falando"
-      startSpeakingLoop();
+      state.gain.connect(masterGain);
+    }
+    try {
+      const src = audioCtx.createMediaStreamSource(new MediaStream([track]));
+      src.connect(state.gain);
+      // O indicador de "falando" usa só a 1ª faixa (o microfone).
+      if (!state.analyser) {
+        state.analyser = audioCtx.createAnalyser();
+        state.analyser.fftSize = 512;
+        src.connect(state.analyser);
+        startSpeakingLoop();
+      }
     } catch (err) {
       console.warn('grafo de áudio', err);
       state.audioEl.muted = false; // fallback: toca pelo elemento (pode ecoar)
     }
+  } else {
+    state.audioEl.muted = false;
   }
 }
 
