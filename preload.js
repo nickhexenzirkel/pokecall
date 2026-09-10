@@ -28,6 +28,11 @@ contextBridge.exposeInMainWorld('pokecall', {
     action: (payload) => ipcRenderer.send('overlay-action', payload),
     onAction: (cb) => ipcRenderer.on('overlay-action', (_e, a) => cb(a)),
     resize: (h) => ipcRenderer.send('overlay-resize', h),
+    // Tamanho na mão (alcinha do canto) e volta ao automático.
+    config: () => ipcRenderer.invoke('overlay-config'),
+    bounds: () => ipcRenderer.invoke('overlay-bounds'),
+    setSize: (size) => ipcRenderer.send('overlay-set-size', size),
+    autoSize: () => ipcRenderer.send('overlay-auto-size'),
     focusApp: () => ipcRenderer.send('focus-main'),
   },
 

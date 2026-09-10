@@ -111,16 +111,67 @@ $('form').addEventListener('submit', (e) => {
   input.value = '';
 });
 
-/* ---------------- Tamanho da janelinha ---------------- */
+/* ---------------- Tamanho e lugar da janelinha ---------------- */
 
-// A janela cresce para cima conforme chegam mensagens (o main ancora embaixo).
+// Dois modos:
+//  - automático: a janela cresce/encolhe sozinha conforme as mensagens;
+//  - manual: o usuário arrastou a alcinha do canto, então o tamanho é dele
+//    (as mensagens passam a rolar dentro da janela).
+// Mover é sempre livre: arrasta por qualquer área vazia do card.
+let manualSize = false;
+
 function fit() {
+  if (manualSize) return;
   const h = Math.ceil($('card').getBoundingClientRect().height) + 16; // + padding do body
   bridge.resize(h);
 }
 
 new ResizeObserver(fit).observe($('card'));
-fit();
+
+bridge.config().then((cfg) => {
+  manualSize = !!(cfg && cfg.manual);
+  document.body.classList.toggle('manual', manualSize);
+  fit();
+});
+
+// Alcinha do canto: arrastar muda largura e altura.
+const grip = $('grip');
+let drag = null;
+
+grip.addEventListener('pointerdown', async (e) => {
+  e.preventDefault();
+  const b = await bridge.bounds();
+  if (!b) return;
+  drag = { x: e.screenX, y: e.screenY, w: b.width, h: b.height };
+  grip.setPointerCapture(e.pointerId);
+});
+
+grip.addEventListener('pointermove', (e) => {
+  if (!drag) return;
+  const width = Math.max(240, Math.min(900, drag.w + (e.screenX - drag.x)));
+  const height = Math.max(96, Math.min(900, drag.h + (e.screenY - drag.y)));
+  if (!manualSize) {
+    manualSize = true;
+    document.body.classList.add('manual');
+  }
+  bridge.setSize({ width, height });
+});
+
+const endDrag = (e) => {
+  if (!drag) return;
+  drag = null;
+  try { grip.releasePointerCapture(e.pointerId); } catch {}
+};
+grip.addEventListener('pointerup', endDrag);
+grip.addEventListener('pointercancel', endDrag);
+
+// Duplo clique na faixa de cima: volta ao tamanho automático.
+document.querySelector('.head').addEventListener('dblclick', () => {
+  manualSize = false;
+  document.body.classList.remove('manual');
+  bridge.autoSize();
+  fit();
+});
 
 // Pede o estado atual assim que a janelinha carrega (o app pode ter mandado
 // o primeiro estado antes desta página existir).

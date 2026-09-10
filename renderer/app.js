@@ -486,6 +486,7 @@ function createPeer(peerId, name, avatar) {
     id: peerId,
     name,
     avatar: avatar || pendingMeta.get(peerId)?.avatar || null,
+    micOn: pendingMeta.get(peerId)?.mic !== false, // até dizerem o contrário, ligado
     pc,
     polite: selfId < peerId,   // desempate deterministico p/ negociacao perfeita
     makingOffer: false,
@@ -500,8 +501,8 @@ function createPeer(peerId, name, avatar) {
   peers.set(peerId, state);
   createTile(state);
 
-  // Envia nosso personagem (avatar) para este peer.
-  sendSignal(peerId, { meta: { avatar: selectedAvatar } });
+  // Envia nosso personagem (avatar) e o estado do microfone para este peer.
+  sendSignal(peerId, { meta: { avatar: selectedAvatar, mic: micEnabled } });
 
   // Adiciona nossos tracks atuais (microfone + tela, se estiver compartilhando).
   for (const track of localAudioStream.getAudioTracks()) {
@@ -611,7 +612,9 @@ async function onPeerSignal(peerId, data) {
     const st = peers.get(peerId);
     if (st) {
       st.avatar = data.meta.avatar || st.avatar;
+      if (typeof data.meta.mic === 'boolean') st.micOn = data.meta.mic;
       renderTileAvatar(st);
+      renderTileMic(st);
     } else {
       pendingMeta.set(peerId, data.meta);
     }
@@ -738,12 +741,27 @@ function toggleMic() {
   updateMicButton();
 }
 
+// Conta para todos que meu microfone ligou/desligou (estilo Discord: quem
+// está mudo aparece com o ícone de microfone cortado na telha).
+function broadcastMicState() {
+  for (const [peerId, st] of peers) {
+    if (!st.pc) continue; // pula a ficha "self-ui"
+    sendSignal(peerId, { meta: { avatar: selectedAvatar, mic: micEnabled } });
+  }
+  const self = peers.get('self-ui');
+  if (self) {
+    self.micOn = micEnabled;
+    renderTileMic(self);
+  }
+}
+
 function updateMicButton() {
   const btn = $('btn-mic');
   btn.classList.toggle('active', micEnabled);
   btn.querySelector('.ctrl-icon').innerHTML = micEnabled ? ICONS.mic : ICONS.micOff;
   btn.querySelector('.ctrl-label').textContent = micEnabled ? 'Ligado' : 'Mudo';
   pushOverlayState();
+  broadcastMicState();
   // Botão de microfone do modo tela cheia (vídeo).
   const vmic = $('viewer-mic');
   if (vmic) {
@@ -1018,6 +1036,7 @@ function enterCall() {
     id: 'self',
     name: selfName + ' (você)',
     avatar: selectedAvatar,
+    micOn: micEnabled,
     tile: null,
   };
   createTile(selfState);
@@ -1048,6 +1067,7 @@ function createTile(state) {
 
   state.tile = { root, video, avatar, nameTag };
   renderTileAvatar(state);
+  renderTileMic(state);
 
   // Botão direito na telha de um participante -> ajustar o volume dele (só para mim).
   if (state.pc) {
@@ -1075,6 +1095,23 @@ function renderTileAvatar(state) {
     t.avatar.appendChild(img);
   } else {
     t.avatar.textContent = initials(state.name);
+  }
+}
+
+// Ícone de microfone cortado ao lado do nome, quando a pessoa está muda.
+function renderTileMic(state) {
+  const t = state.tile;
+  if (!t) return;
+  const has = t.nameTag.querySelector('.tile-mic-off');
+  if (state.micOn === false) {
+    if (has) return;
+    const ic = document.createElement('span');
+    ic.className = 'tile-mic-off';
+    ic.title = 'Microfone desligado';
+    ic.innerHTML = ICONS.micOff;
+    t.nameTag.appendChild(ic);
+  } else if (has) {
+    has.remove();
   }
 }
 
