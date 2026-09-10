@@ -218,6 +218,20 @@
       <button id="viewer-close" class="viewer-btn" title="Fechar (Esc)" data-icon="close"></button>
     </div>
   </div>
+
+  <!-- Notificação discreta da última mensagem do chat -->
+  <div id="viewer-toast" class="viewer-toast hidden"></div>
+
+  <!-- Barra de comentar: microfone grande + chat rápido -->
+  <div class="viewer-dock">
+    <button id="viewer-mic" class="viewer-mic" title="Ligar/desligar microfone">
+      <span class="ctrl-icon" data-icon="mic"></span>
+    </button>
+    <form id="viewer-chat-form" class="viewer-chat-form">
+      <input id="viewer-chat-input" type="text" placeholder="Comentar no chat…" maxlength="2000" autocomplete="off" />
+      <button type="submit" class="viewer-send" title="Enviar" data-icon="send"></button>
+    </form>
+  </div>
 </div>
 
 <!-- ====== AVISO DE ATUALIZAÇÃO ====== -->

@@ -28,6 +28,9 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
+      // Não desacelerar quando a janela perde o foco (Alt+Tab) — senão a
+      // captura/compartilhamento de tela congela e fica preto para quem assiste.
+      backgroundThrottling: false,
     },
   });
 

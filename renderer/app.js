@@ -105,6 +105,7 @@ const ICONS = {
   close: SVG('<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>'),
   smile: SVG('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>'),
   attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
+  send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
 };
 
 // Emotes do chat (arquivos em renderer/emotes/). GIFs animam sozinhos em <img>.
@@ -397,7 +398,10 @@ function handleSignal(msg) {
       break;
 
     case 'chat':
-      if (msg.from !== selfId) addChat(msg.name, msg.text, peers.get(msg.from)?.avatar);
+      if (msg.from !== selfId) {
+        addChat(msg.name, msg.text, peers.get(msg.from)?.avatar);
+        notifyViewer(msg.name, msg.text);
+      }
       break;
   }
 }
@@ -604,6 +608,12 @@ function updateMicButton() {
   btn.classList.toggle('active', micEnabled);
   btn.querySelector('.ctrl-icon').innerHTML = micEnabled ? ICONS.mic : ICONS.micOff;
   btn.querySelector('.ctrl-label').textContent = micEnabled ? 'Ligado' : 'Mudo';
+  // Botão de microfone do modo tela cheia (vídeo).
+  const vmic = $('viewer-mic');
+  if (vmic) {
+    vmic.classList.toggle('active', micEnabled);
+    vmic.querySelector('.ctrl-icon').innerHTML = micEnabled ? ICONS.mic : ICONS.micOff;
+  }
 }
 
 /* ======================= COMPARTILHAR TELA ======================= */
@@ -961,8 +971,39 @@ $('viewer-fs').addEventListener('click', () => {
   else el.requestFullscreen().catch(() => {});
 });
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && !$('viewer').classList.contains('hidden')) closeViewer();
+  if (e.key !== 'Escape' || $('viewer').classList.contains('hidden')) return;
+  // Se estiver digitando um comentário, Esc só sai do campo (não fecha o vídeo).
+  if (document.activeElement === $('viewer-chat-input')) { $('viewer-chat-input').blur(); return; }
+  closeViewer();
 });
+
+// ---- Modo comentário dentro do vídeo em tela cheia ----
+$('viewer-mic').addEventListener('click', toggleMic);
+
+$('viewer-chat-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const input = $('viewer-chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+  ws.send(JSON.stringify({ type: 'chat', room: roomId, text }));
+  addChat(selfName, text, selectedAvatar);
+  input.value = '';
+});
+
+// Notificação discreta da última mensagem, só enquanto o vídeo está aberto.
+let viewerToastTimer = null;
+function notifyViewer(name, text) {
+  const t = $('viewer-toast');
+  if (!t || $('viewer').classList.contains('hidden')) return;
+  t.innerHTML = '';
+  const who = document.createElement('b');
+  who.textContent = name + ': ';
+  t.appendChild(who);
+  renderMessageContent(t, text); // mostra emotes também
+  t.classList.remove('hidden');
+  clearTimeout(viewerToastTimer);
+  viewerToastTimer = setTimeout(() => t.classList.add('hidden'), 5000);
+}
 
 function attachAudio(state) {
   // Reproducao DIRETA pelo elemento <audio> (caminho confiavel).
