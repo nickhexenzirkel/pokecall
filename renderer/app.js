@@ -118,7 +118,7 @@ const ICONS = {
   smile: SVG('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>'),
   attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
   send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
-  theater: SVG('<rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
+  theater: SVG('<polyline points="14 4 20 4 20 10"/><polyline points="10 20 4 20 4 14"/><line x1="20" y1="4" x2="13.5" y2="10.5"/><line x1="4" y1="20" x2="10.5" y2="13.5"/>'),
   lock: SVG('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
 };
 
@@ -921,7 +921,6 @@ function enterCall() {
   setupSelfAnalyser(selfState);
   updatePeerCount();
   updateConnBadge();
-  updateMsgPopsOffset();
 }
 
 function createTile(state) {
@@ -1325,7 +1324,6 @@ $('btn-chat').addEventListener('click', () => {
   panel.classList.toggle('hidden-panel');
   $('btn-chat').classList.toggle('active');
   if (!panel.classList.contains('hidden-panel')) $('chat-input').focus();
-  updateMsgPopsOffset();
 });
 
 function addChat(who, text, avatar) {
@@ -1358,61 +1356,8 @@ function addChat(who, text, avatar) {
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 
-  pushMessagePop(who, text, avatar); // pop-up no lado direito (tela normal)
   notifyViewer(who, text);           // notificação dentro do vídeo em tela cheia
 }
-
-// Pop-up pequeno na tela (lado direito) com ícone + nome + mensagem.
-function pushMessagePop(name, text, avatar) {
-  const box = $('msg-pops');
-  if (!box) return;
-  // Só mostra pop-up quando ALGUÉM está transmitindo (há vídeo ao vivo).
-  // Sem transmissão, o chat já está visível ao lado -> não precisa de pop-up.
-  if (!document.querySelector('.tile.has-video')) return;
-  // No modo Expandido e na Tela cheia há notificações próprias -> sem pop-up aqui.
-  if (!$('theater').classList.contains('hidden')) return;
-  if (!$('viewer').classList.contains('hidden')) return;
-  const el = document.createElement('div');
-  el.className = 'msg-pop';
-
-  const av = document.createElement('span');
-  av.className = 'chat-av';
-  if (avatar && AVATARS.includes(avatar)) {
-    const img = document.createElement('img');
-    img.src = avatarSrc(avatar);
-    av.appendChild(img);
-  } else {
-    av.textContent = initials(name);
-  }
-
-  const bodyEl = document.createElement('div');
-  bodyEl.className = 'chat-body';
-  const who = document.createElement('span');
-  who.className = 'who';
-  who.textContent = name;
-  const txt = document.createElement('span');
-  txt.className = 'chat-text';
-  renderMessageContent(txt, text);
-  bodyEl.append(who, txt);
-
-  el.append(av, bodyEl);
-  box.appendChild(el);
-  while (box.children.length > 10) box.removeChild(box.firstChild);
-
-  setTimeout(() => {
-    el.classList.add('leaving');
-    setTimeout(() => el.remove(), 600);
-  }, 8000);
-}
-
-function updateMsgPopsOffset() {
-  const chat = $('chat-panel');
-  const pops = $('msg-pops');
-  if (!chat || !pops) return;
-  const open = !chat.classList.contains('hidden-panel');
-  pops.style.right = open ? chat.offsetWidth + 16 + 'px' : '16px';
-}
-window.addEventListener('resize', updateMsgPopsOffset);
 
 function addSystemChat(text) {
   const el = document.createElement('div');
