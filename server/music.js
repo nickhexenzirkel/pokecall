@@ -30,7 +30,10 @@ function get(url, redirects = 3) {
       {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
-          'Accept-Language': 'pt-BR,pt;q=0.9,en;q=0.8',
+          // Em portugues o YouTube devolve o titulo TRADUZIDO ("Não estou em
+          // LA" no lugar de "Ain't In LA"). Pedindo em ingles vem o nome
+          // original, que e o que a pessoa espera ver.
+          'Accept-Language': 'en-US,en;q=0.9',
           Cookie: 'CONSENT=YES+1', // pula a tela de consentimento da Europa
         },
         timeout: 15000,
@@ -82,7 +85,7 @@ function trackFromRenderer(v) {
 // Le a pagina de resultados do YouTube (filtro sp=EgIQAQ = so videos).
 async function searchScrape(query, n) {
   const html = await get(
-    'https://www.youtube.com/results?search_query=' + encodeURIComponent(query) + '&sp=EgIQAQ%253D%253D'
+    'https://www.youtube.com/results?search_query=' + encodeURIComponent(query) + '&sp=EgIQAQ%253D%253D&hl=en&gl=US'
   );
   const m = html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s);
   if (!m) throw new Error('o YouTube nao devolveu resultados');
@@ -177,7 +180,7 @@ function trackFromLockup(v) {
 }
 
 async function youtubePlaylist(listId, limite = 100) {
-  const html = await get('https://www.youtube.com/playlist?list=' + encodeURIComponent(listId));
+  const html = await get('https://www.youtube.com/playlist?list=' + encodeURIComponent(listId) + '&hl=en&gl=US');
   const m = html.match(/ytInitialData\s*=\s*(\{.+?\});<\/script>/s);
   if (!m) throw new Error('nao consegui abrir essa playlist');
 
@@ -223,6 +226,7 @@ async function spotifyList(tipo, id, limite = 100) {
       title: titulo,
       artist: artista,
       duration: Math.round(Number(t.duration || 0) / 1000),
+      explicit: !!t.isExplicit,
       query: [titulo, artista].filter(Boolean).join(' '),
     };
   }).filter((it) => it.query);
@@ -232,24 +236,43 @@ async function spotifyList(tipo, id, limite = 100) {
 
 /* ======================= Escolher a melhor versao ======================= */
 
-// Coisas que quase nunca sao a musica que a pessoa quer.
-const LIXO = /(tradu|legendad|lyric|letra|karaok|cover|reac[çc]|ao vivo|\blive\b|sped up|slowed|reverb|nightcore|8d audio|tutorial|piano|instrumental)/i;
+// Coisas que quase nunca sao a musica que a pessoa quer (a menos que ela
+// tenha pedido justamente isso — ai nao penalizamos).
+const LIXO = ['tradu', 'legendad', 'lyric', 'letra', 'karaok', 'cover', 'reação', 'reacao', 'reaction',
+  'ao vivo', 'live', 'sped up', 'slowed', 'reverb', 'nightcore', '8d audio', 'tutorial', 'piano', 'instrumental'];
 
-// Dá uma nota para cada resultado do YouTube, comparando com a faixa que
-// veio do Spotify. A duracao e o sinal mais forte: a versao certa tem
-// praticamente o mesmo tempo.
+// Versao sem palavrão x versao original.
+const RE_EXPLICIT = /\bexplicit\b|\[e\]|\(e\)/i;
+const RE_LIMPA = /\bclean\b|\bcensored\b|\bcensurad|radio edit|sem palavr|no cussing|\bedited\b/i;
+
+// Dá uma nota para cada resultado do YouTube. A duracao (quando sabemos, via
+// Spotify) e o sinal mais forte: a versao certa tem praticamente o mesmo tempo.
 function nota(resultado, alvo) {
   let n = 0;
   const titulo = (resultado.title || '').toLowerCase();
   const canal = (resultado.artist || '').toLowerCase();
   const artista = (alvo.artist || '').toLowerCase();
-  const musica = (alvo.title || '').toLowerCase();
+  const pedido = ((alvo.query || alvo.title || '')).toLowerCase();
+
+  // Palavras do pedido que aparecem no titulo
+  const palavras = pedido.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length > 2);
+  const acertos = palavras.filter((p) => titulo.includes(p)).length;
+  if (palavras.length) n += Math.min(3, acertos * 0.6);
 
   if (artista && (canal.includes(artista) || artista.includes(canal))) n += 3;
   if (artista && titulo.includes(artista)) n += 1;
-  if (musica && titulo.includes(musica)) n += 2;
-  if (LIXO.test(titulo)) n -= 4;
-  if (/official|oficial|audio|áudio/i.test(titulo)) n += 1;
+  if (/ - topic$/i.test(resultado.artist || '')) n += 2;  // audio exato do album
+  if (/official|oficial|\baudio\b/i.test(titulo)) n += 1;
+
+  // Só penaliza o "lixo" que a pessoa NÃO pediu.
+  for (const termo of LIXO) {
+    if (titulo.includes(termo) && !pedido.includes(termo)) { n -= 4; break; }
+  }
+
+  // Explícito na frente: versão original ganha da "clean/censored".
+  const pediuLimpa = RE_LIMPA.test(pedido);
+  if (RE_EXPLICIT.test(titulo)) n += alvo.explicit ? 4 : 2;
+  if (RE_LIMPA.test(titulo) && !pediuLimpa) n -= alvo.explicit === false ? 2 : 6;
 
   if (alvo.duration && resultado.duration) {
     const dif = Math.abs(resultado.duration - alvo.duration);
@@ -262,7 +285,7 @@ function nota(resultado, alvo) {
 
 // Procura e devolve a versao que mais parece com a faixa pedida.
 async function searchBest(alvo) {
-  const achados = await search(alvo.query || [alvo.title, alvo.artist].filter(Boolean).join(' '), 5);
+  const achados = await search(alvo.query || [alvo.title, alvo.artist].filter(Boolean).join(' '), 6);
   if (!achados.length) return null;
   let melhor = achados[0];
   let melhorNota = nota(achados[0], alvo);
@@ -360,9 +383,9 @@ async function resolve(input) {
 
   if (/^https?:\/\//i.test(text)) throw new Error('esse link nao e do YouTube nem do Spotify');
 
-  const achados = await search(text, 1);
-  if (!achados.length) throw new Error('nao achei nada com esse nome');
-  return { tracks: achados };
+  const melhor = await searchBest({ query: text });
+  if (!melhor) throw new Error('nao achei nada com esse nome');
+  return { tracks: [melhor] };
 }
 
 module.exports = { search, searchBest, resolve, videoInfo, youtubePlaylist, spotifyList };

@@ -917,3 +917,12 @@ input[type="range"]::-webkit-slider-thumb {
 .dj-artista { color: var(--text-mute); }
 .chat-msg.dj-erro .dj-texto { color: var(--danger-2); }
 .chat-msg.dj-erro .dj-musica { color: var(--danger-2); }
+
+/* Cabeçalho da fila, com o botão de limpar tudo */
+.music-section-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.music-clear {
+  background: none; border: 1px solid var(--border); color: var(--text-mute);
+  font-size: 10.5px; font-weight: 700; letter-spacing: 0.3px; text-transform: uppercase;
+  padding: 4px 9px; border-radius: 7px; font-family: inherit;
+}
+.music-clear:hover { color: var(--danger-2); border-color: var(--danger-2); }

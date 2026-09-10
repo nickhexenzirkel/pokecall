@@ -2254,6 +2254,10 @@ function corpoDoDj(dj, textoCru) {
       if (dj.count > 1) partes.push(pedaco(' e mais ' + (dj.count - 1), 'dj-artista'));
       break;
 
+    case 'clear':
+      partes.push(quem, pedaco(' limpou a fila'), pedaco(' · ' + dj.count + ' músicas', 'dj-artista'));
+      break;
+
     case 'list':
       partes.push(quem, pedaco(' mandou a ' + (dj.origem || 'playlist') + ' '), musica);
       partes.push(pedaco(' · ' + dj.count + ' músicas — procurando cada uma…', 'dj-artista'));
@@ -2372,6 +2376,11 @@ $('music-search-btn').addEventListener('click', () => {
   if (!q) return;
   sendMusic('search', { query: q });
   showMusicNotice('Buscando opções…');
+});
+
+$('music-clear').addEventListener('click', () => {
+  if (!musicState.queue.length) return;
+  sendMusic('clear');
 });
 
 $('music-play').addEventListener('click', () => sendMusic(musicState.paused ? 'resume' : 'pause'));

@@ -425,6 +425,20 @@ async function handleMusic(ws, msg) {
       break;
     }
 
+    // Limpar a fila inteira de uma vez (a musica atual continua tocando).
+    // Um recado só no chat, e não um por música.
+    case 'clear': {
+      if (!m.queue.length) return;
+      const quantas = m.queue.length;
+      m.importando = (m.importando || 0) + 1;   // cancela playlist entrando
+      m.queue = [];
+      broadcastMusic(roomId);
+      musicNotice(roomId, `${name} limpou a fila (${quantas} músicas).`, 'ok', {
+        act: 'clear', who: name, count: quantas,
+      });
+      break;
+    }
+
     case 'remove': {
       const i = Math.round(Number(msg.index));
       if (i >= 0 && i < m.queue.length) {
