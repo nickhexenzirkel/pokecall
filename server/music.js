@@ -138,12 +138,19 @@ function searchYtdlp(query, n) {
   });
 }
 
+const pausa = (ms) => new Promise((r) => setTimeout(r, ms));
+
 async function search(query, n = 6) {
-  try {
-    const r = await searchScrape(query, n);
-    if (r.length) return r;
-  } catch (err) {
-    console.warn('[musica] busca direta falhou:', err.message);
+  // Duas tentativas: de vez em quando o YouTube responde com um redirect
+  // (302) quando vêm muitas buscas seguidas — esperar um pouco resolve.
+  for (let tentativa = 0; tentativa < 2; tentativa++) {
+    try {
+      const r = await searchScrape(query, n);
+      if (r.length) return r;
+    } catch (err) {
+      console.warn('[musica] busca falhou (' + (tentativa + 1) + '/2):', err.message);
+    }
+    await pausa(900);
   }
   return searchYtdlp(query, n).catch(() => []);
 }
@@ -241,8 +248,11 @@ async function spotifyList(tipo, id, limite = 100) {
 const LIXO = ['tradu', 'legendad', 'lyric', 'letra', 'karaok', 'cover', 'reação', 'reacao', 'reaction',
   'ao vivo', 'live', 'sped up', 'slowed', 'reverb', 'nightcore', '8d audio', 'tutorial', 'piano', 'instrumental'];
 
+// Versões mexidas: não são a gravação original da música.
+const RE_MODIFICADA = /\bremix\b|\bmix\b|432\s?hz|\b8d\b|bass boost|mashup|extended|sped up|slowed|nightcore|acapella|acappella|\bloop\b|1 hour|1 hora/i;
+
 // Versao sem palavrão x versao original.
-const RE_EXPLICIT = /\bexplicit\b|\[e\]|\(e\)/i;
+const RE_EXPLICIT = /\bexplicit\b|\bdirty\b|uncensored|sem censura|\[e\]/i;
 const RE_LIMPA = /\bclean\b|\bcensored\b|\bcensurad|radio edit|sem palavr|no cussing|\bedited\b/i;
 
 // Dá uma nota para cada resultado do YouTube. A duracao (quando sabemos, via
@@ -250,28 +260,51 @@ const RE_LIMPA = /\bclean\b|\bcensored\b|\bcensurad|radio edit|sem palavr|no cus
 function nota(resultado, alvo) {
   let n = 0;
   const titulo = (resultado.title || '').toLowerCase();
-  const canal = (resultado.artist || '').toLowerCase();
+  const canalCru = (resultado.artist || '');
+  const canal = canalCru.toLowerCase().replace(/ - topic$/, '').trim();
   const artista = (alvo.artist || '').toLowerCase();
-  const pedido = ((alvo.query || alvo.title || '')).toLowerCase();
+  const pedido = (alvo.query || alvo.title || '').toLowerCase();
 
   // Palavras do pedido que aparecem no titulo
   const palavras = pedido.split(/[^\p{L}\p{N}]+/u).filter((p) => p.length > 2);
   const acertos = palavras.filter((p) => titulo.includes(p)).length;
   if (palavras.length) n += Math.min(3, acertos * 0.6);
 
-  if (artista && (canal.includes(artista) || artista.includes(canal))) n += 3;
+  // Canal de confiança: o canal do próprio artista (ou o "- Topic", que é o
+  // áudio do álbum enviado pela gravadora). Vale tanto quando sabemos o
+  // artista (veio do Spotify) quanto quando ele aparece no que foi digitado.
+  const canalConfiavel =
+    canal.length > 2 &&
+    ((artista && (canal.includes(artista) || artista.includes(canal))) || pedido.includes(canal));
+  const doTopic = / - topic$/i.test(canalCru);
+  if (canalConfiavel) n += 3;
+  if (doTopic) n += 3;
+  // Reupload de canal aleatório: costuma ser pior (qualidade, cortes) e some
+  // do YouTube com o tempo. Só ganha se tiver um motivo forte (ser explicit).
+  if (!canalConfiavel && !doTopic) n -= 1.5;
   if (artista && titulo.includes(artista)) n += 1;
-  if (/ - topic$/i.test(resultado.artist || '')) n += 2;  // audio exato do album
-  if (/official|oficial|\baudio\b/i.test(titulo)) n += 1;
+
+  const querExplicita = alvo.explicit !== false;
+
+  if (/official|oficial/i.test(titulo)) n += 1;
+  // O clipe costuma ser a versão CENSURADA; o "official audio" do canal do
+  // artista costuma ser a faixa do álbum, do jeito que foi lançada — é o
+  // melhor caminho para a versão sem censura. Em canal aleatório, "audio"
+  // não quer dizer nada.
+  if (/\b(audio|áudio)\b/i.test(titulo) && (canalConfiavel || doTopic)) n += 3;
+  if (/music video|videoclipe|official video/i.test(titulo) && querExplicita) n -= 1.5;
 
   // Só penaliza o "lixo" que a pessoa NÃO pediu.
   for (const termo of LIXO) {
     if (titulo.includes(termo) && !pedido.includes(termo)) { n -= 4; break; }
   }
 
+  // Versão mexida (remix, 432hz, acelerada...) não é a música original.
+  if (RE_MODIFICADA.test(titulo) && !RE_MODIFICADA.test(pedido)) n -= 6;
+
   // Explícito na frente: versão original ganha da "clean/censored".
   const pediuLimpa = RE_LIMPA.test(pedido);
-  if (RE_EXPLICIT.test(titulo)) n += alvo.explicit ? 4 : 2;
+  if (RE_EXPLICIT.test(titulo)) n += querExplicita ? 5 : 0;
   if (RE_LIMPA.test(titulo) && !pediuLimpa) n -= alvo.explicit === false ? 2 : 6;
 
   if (alvo.duration && resultado.duration) {
@@ -284,12 +317,30 @@ function nota(resultado, alvo) {
 }
 
 // Procura e devolve a versao que mais parece com a faixa pedida.
+//
+// Detalhe importante: o clipe oficial de muita musica no YouTube JA E a
+// versao censurada, e a versao sem censura nem aparece na busca normal. Por
+// isso, quando queremos a explicita, fazemos uma segunda busca pedindo por
+// ela e juntamos os dois conjuntos antes de escolher.
 async function searchBest(alvo) {
-  const achados = await search(alvo.query || [alvo.title, alvo.artist].filter(Boolean).join(' '), 6);
-  if (!achados.length) return null;
-  let melhor = achados[0];
-  let melhorNota = nota(achados[0], alvo);
-  for (const r of achados.slice(1)) {
+  const base = alvo.query || [alvo.title, alvo.artist].filter(Boolean).join(' ');
+
+  let candidatos = await search(base, 6);
+
+  const querExplicita = alvo.explicit !== false && !RE_LIMPA.test(base);
+  const jaTemExplicita = candidatos.some((r) => RE_EXPLICIT.test(r.title));
+
+  if (querExplicita && !jaTemExplicita) {
+    const extras = await search(base + ' explicit', 5).catch(() => []);
+    const vistos = new Set(candidatos.map((c) => c.id));
+    for (const e of extras) if (!vistos.has(e.id)) { candidatos.push(e); vistos.add(e.id); }
+  }
+
+  if (!candidatos.length) return null;
+
+  let melhor = candidatos[0];
+  let melhorNota = nota(candidatos[0], alvo);
+  for (const r of candidatos.slice(1)) {
     const n = nota(r, alvo);
     if (n > melhorNota) { melhor = r; melhorNota = n; }
   }
