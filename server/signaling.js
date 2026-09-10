@@ -67,6 +67,32 @@ function getRoom(roomId) {
 // Conexoes que estao "observando o lobby" (querem saber quem esta em cada sala).
 const lobbyWatchers = new Set();
 
+/* ======================= QUEM ESTA ONLINE ======================= *
+ * Cada app abre uma conexao "de presenca" assim que liga (mesmo fora de
+ * uma sala) e diz seu nome. Com isso todo mundo ve quem esta online e pode
+ * chamar a pessoa para uma sala.                                          */
+
+// online: Map<ws, { id, name, avatar, room, roomName }>
+const online = new Map();
+
+function listaOnline() {
+  const out = [];
+  for (const [, p] of online) {
+    out.push({ id: p.id, name: p.name, avatar: p.avatar, room: p.room, roomName: p.roomName });
+  }
+  return out;
+}
+
+function broadcastOnline() {
+  const payload = { type: 'presence', people: listaOnline() };
+  for (const [ws] of online) send(ws, payload);
+}
+
+function acharOnline(id) {
+  for (const [ws, p] of online) if (p.id === id) return { ws, p };
+  return null;
+}
+
 function lobbySnapshot() {
   const out = {};
   for (const [roomId, room] of rooms) {
@@ -482,6 +508,57 @@ wss.on('connection', (ws) => {
         break;
       }
 
+      // ---- Presença: "estou online, me chamem" ----
+      case 'hello': {
+        const jaEra = online.get(ws);
+        online.set(ws, {
+          id: jaEra ? jaEra.id : crypto.randomUUID(),
+          name: String(msg.name || 'Treinador').slice(0, 32),
+          avatar: String(msg.avatar || '').slice(0, 32) || null,
+          room: jaEra ? jaEra.room : null,
+          roomName: jaEra ? jaEra.roomName : null,
+        });
+        send(ws, { type: 'presence-self', id: online.get(ws).id });
+        broadcastOnline();
+        break;
+      }
+
+      // Em que sala eu estou agora (ou null se voltei para o lobby).
+      case 'presence-room': {
+        const p = online.get(ws);
+        if (!p) return;
+        p.room = msg.room ? String(msg.room).slice(0, 64) : null;
+        p.roomName = msg.roomName ? String(msg.roomName).slice(0, 60) : null;
+        broadcastOnline();
+        break;
+      }
+
+      // "Vem pra cá": um convite direto para outra pessoa online.
+      case 'invite': {
+        const eu = online.get(ws);
+        const alvo = acharOnline(String(msg.to || ''));
+        if (!eu || !alvo) return;
+        send(alvo.ws, {
+          type: 'invited',
+          fromId: eu.id,
+          from: eu.name,
+          avatar: eu.avatar,
+          room: String(msg.room || '').slice(0, 64),
+          roomName: String(msg.roomName || '').slice(0, 60),
+          icon: String(msg.icon || '').slice(0, 20),
+        });
+        send(ws, { type: 'invite-sent', to: alvo.p.name });
+        break;
+      }
+
+      // Recusou o convite: avisa quem chamou.
+      case 'invite-refused': {
+        const eu = online.get(ws);
+        const alvo = acharOnline(String(msg.to || ''));
+        if (eu && alvo) send(alvo.ws, { type: 'invite-refused', from: eu.name });
+        break;
+      }
+
       case 'join': {
         const roomId = String(msg.room || 'lobby').slice(0, 64);
         const name = String(msg.name || 'Treinador').slice(0, 32);
@@ -551,6 +628,10 @@ wss.on('connection', (ws) => {
     if (ws.isLobbyWatcher) {
       lobbyWatchers.delete(ws);
       ws.isLobbyWatcher = false;
+    }
+    if (online.has(ws)) {
+      online.delete(ws);
+      broadcastOnline();
     }
     leaveRoom(ws);
   };

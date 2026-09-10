@@ -219,6 +219,7 @@ const ICONS = {
   theater: SVG('<polyline points="14 4 20 4 20 10"/><polyline points="10 20 4 20 4 14"/><line x1="20" y1="4" x2="13.5" y2="10.5"/><line x1="4" y1="20" x2="10.5" y2="13.5"/>'),
   pin: SVG('<line x1="12" y1="17" x2="12" y2="22"/><path d="M9 3h6l-1 6 3.5 3.5a1 1 0 0 1-.7 1.7H6.2a1 1 0 0 1-.7-1.7L9 9z"/>'),
   music: SVG('<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>'),
+  people: SVG('<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>'),
   lock: SVG('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
 };
 
@@ -298,6 +299,7 @@ function goToRoomStep() {
   $('step-room').classList.remove('hidden');
   $('lobby-tagline').textContent = 'Escolha uma sala para entrar.';
   startLobbyWatch(DEFAULT_SERVER); // mostra quem está em cada sala, ao vivo
+  startPresence();                 // e me coloca na lista de quem está online
 }
 $('btn-continue').addEventListener('click', goToRoomStep);
 $('inp-name').addEventListener('keydown', (e) => { if (e.key === 'Enter') goToRoomStep(); });
@@ -461,6 +463,8 @@ async function join(room, display) {
   roomId = room;
 
   stopLobbyWatch(); // a conexão da sala assume a partir daqui
+  startPresence();  // continua anunciando que estou online
+  presenceSend({ type: 'presence-room', room, roomName: roomDisplayName });
 
   // Prepara o áudio (precisa de um gesto do usuário — o clique na sala serve).
   ensureAudio();
@@ -1154,6 +1158,7 @@ function enterCall() {
   setupSelfAnalyser(selfState);
   updatePeerCount();
   updateConnBadge();
+  renderPeople();   // some com a abinha do lobby e atualiza os botões
   SFX.enterRoom();
 }
 
@@ -1970,6 +1975,9 @@ async function openSettings() {
   $('set-volume').value = volPct;
   $('vol-label').textContent = volPct + '%';
   $('set-sfx').checked = sfxEnabled;
+  if (window.pokecall.startup) {
+    window.pokecall.startup.get().then((v) => { $('set-startup').checked = !!v; }).catch(() => {});
+  }
 }
 
 $('set-input').addEventListener('change', (e) => setInputDevice(e.target.value));
@@ -1979,6 +1987,14 @@ $('set-volume').addEventListener('input', (e) => {
   $('vol-label').textContent = pct + '%';
   setMasterVolume(pct / 100);
 });
+$('set-startup').addEventListener('change', (e) => {
+  if (!window.pokecall.startup) return;
+  window.pokecall.startup.set(e.target.checked).then((v) => { $('set-startup').checked = !!v; }).catch(() => {});
+});
+if (window.pokecall.startup && window.pokecall.startup.onChanged) {
+  window.pokecall.startup.onChanged((v) => { $('set-startup').checked = !!v; });
+}
+
 $('set-sfx').addEventListener('change', (e) => {
   setSfxEnabled(e.target.checked);
   if (e.target.checked) SFX.peerJoin(); // previa do som
@@ -2564,3 +2580,261 @@ function renderMusicResults(results) {
   }
   box.classList.remove('hidden');
 }
+
+/* ======================= PESSOAS ONLINE E CONVITES ======================= *
+ * O app abre uma conexão de "presença" assim que liga — mesmo fora de uma
+ * sala e mesmo minimizado na bandeja. Com isso a galera vê quem está online
+ * e pode chamar você para uma sala.                                         */
+
+let presenceWs = null;
+let presenceId = null;
+let peopleOnline = [];
+let presenceRetry = null;
+let convitePendente = null;
+
+function nomeSalvo() {
+  return (selfName || localStorage.getItem('pokecall.name') || '').trim();
+}
+
+function presenceSend(obj) {
+  if (presenceWs && presenceWs.readyState === WebSocket.OPEN) {
+    presenceWs.send(JSON.stringify(obj));
+  }
+}
+
+function presenceHello() {
+  const nome = nomeSalvo();
+  if (!nome) return;
+  presenceSend({ type: 'hello', name: nome, avatar: selectedAvatar || localStorage.getItem('pokecall.avatar') });
+  if (roomId) presenceSend({ type: 'presence-room', room: roomId, roomName: roomDisplayName });
+}
+
+function startPresence() {
+  if (!nomeSalvo()) return;                       // sem nome ainda, não anuncia
+  if (presenceWs && presenceWs.readyState <= WebSocket.OPEN) { presenceHello(); return; }
+
+  try { presenceWs = new WebSocket(DEFAULT_SERVER); }
+  catch { return; }
+
+  presenceWs.addEventListener('open', presenceHello);
+  presenceWs.addEventListener('message', (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch { return; }
+    handlePresence(msg);
+  });
+  presenceWs.addEventListener('close', () => {
+    presenceWs = null;
+    peopleOnline = [];
+    renderPeople();
+    clearTimeout(presenceRetry);
+    presenceRetry = setTimeout(startPresence, 6000);  // volta sozinho
+  });
+  presenceWs.addEventListener('error', () => {});
+}
+
+function handlePresence(msg) {
+  switch (msg.type) {
+    case 'presence-self':
+      presenceId = msg.id;
+      break;
+
+    case 'presence':
+      peopleOnline = msg.people || [];
+      renderPeople();
+      break;
+
+    case 'invited':
+      mostrarConvite(msg);
+      break;
+
+    case 'invite-sent':
+      setPeopleAviso(`Chamado enviado para ${msg.to}.`);
+      break;
+
+    case 'invite-refused':
+      setPeopleAviso(`${msg.from} não pôde vir agora.`);
+      break;
+  }
+}
+
+/* ---- A barra lateral ---- */
+
+function abrirPessoas() {
+  $('people-panel').classList.remove('hidden');
+  renderPeople();
+}
+function fecharPessoas() { $('people-panel').classList.add('hidden'); }
+function alternarPessoas() {
+  if ($('people-panel').classList.contains('hidden')) abrirPessoas();
+  else fecharPessoas();
+}
+
+$('btn-people').addEventListener('click', alternarPessoas);
+$('btn-people-lobby').addEventListener('click', alternarPessoas);
+$('people-close').addEventListener('click', fecharPessoas);
+
+function setPeopleAviso(texto) {
+  const el = $('people-hint-live') || (() => {
+    const p = document.createElement('p');
+    p.id = 'people-hint-live';
+    p.className = 'people-aviso';
+    $('people-panel').appendChild(p);
+    return p;
+  })();
+  el.textContent = texto;
+  clearTimeout(setPeopleAviso._t);
+  setPeopleAviso._t = setTimeout(() => el.remove(), 6000);
+}
+
+function avatarNode(pessoa) {
+  const av = document.createElement('span');
+  av.className = 'people-av';
+  if (pessoa.avatar && AVATARS.includes(pessoa.avatar)) {
+    const img = document.createElement('img');
+    img.src = avatarSrc(pessoa.avatar);
+    img.alt = '';
+    av.appendChild(img);
+  } else {
+    av.textContent = initials(pessoa.name);
+  }
+  return av;
+}
+
+function renderPeople() {
+  const lista = $('people-list');
+  const outros = peopleOnline.filter((p) => p.id !== presenceId);
+
+  $('people-count').textContent = peopleOnline.length;
+  $('people-tab-count').textContent = peopleOnline.length;
+  $('btn-people-lobby').classList.toggle('hidden', !lobby || lobby.classList.contains('hidden'));
+
+  lista.textContent = '';
+
+  if (!outros.length) {
+    const vazio = document.createElement('div');
+    vazio.className = 'people-empty';
+    vazio.textContent = presenceWs ? 'Ninguém mais online agora.' : 'Sem conexão com o servidor.';
+    lista.appendChild(vazio);
+    return;
+  }
+
+  for (const p of outros) {
+    const linha = document.createElement('div');
+    linha.className = 'people-row';
+
+    const info = document.createElement('div');
+    info.className = 'people-info';
+    const nome = document.createElement('div');
+    nome.className = 'people-name';
+    nome.textContent = p.name;
+    const onde = document.createElement('div');
+    onde.className = 'people-where';
+    onde.textContent = p.roomName ? p.roomName : 'no lobby';
+    if (p.room && p.room === roomId) onde.textContent = 'aqui com você';
+    info.append(nome, onde);
+
+    const acao = document.createElement('button');
+    acao.className = 'btn people-btn';
+
+    if (p.room && p.room === roomId) {
+      acao.textContent = 'aqui';
+      acao.disabled = true;
+    } else if (p.room) {
+      // A pessoa está numa sala: dá para ir junto.
+      acao.textContent = 'Entrar';
+      acao.title = 'Entrar na ' + p.roomName;
+      acao.addEventListener('click', () => irParaSala(p.room, p.roomName));
+    } else if (roomId) {
+      // Eu estou numa sala e ela não: chamo pra cá.
+      acao.textContent = 'Chamar';
+      acao.title = 'Chamar para a ' + roomDisplayName;
+      acao.addEventListener('click', () => {
+        presenceSend({ type: 'invite', to: p.id, room: roomId, roomName: roomDisplayName, icon: roomIcon });
+        acao.textContent = 'Chamado';
+        acao.disabled = true;
+        setTimeout(() => { acao.textContent = 'Chamar'; acao.disabled = false; }, 8000);
+      });
+    } else {
+      acao.textContent = '—';
+      acao.disabled = true;
+      acao.title = 'Entre numa sala para poder chamar';
+    }
+
+    linha.append(avatarNode(p), info, acao);
+    lista.appendChild(linha);
+  }
+}
+
+/* ---- Entrar numa sala (por convite ou pelo "Entrar junto") ---- */
+
+function irParaSala(room, roomName) {
+  fecharPessoas();
+  const display = ROOMS[room] || { name: roomName || room, icon: 'chat' };
+
+  if (!roomId) {
+    // Estou no lobby: entra direto.
+    if (!$('inp-name').value.trim()) $('inp-name').value = nomeSalvo();
+    join(room, display);
+    return;
+  }
+  if (room === roomId) return;
+
+  // Já estou numa call: guarda o destino e recarrega limpo.
+  sessionStorage.setItem('pokecall.autojoin', JSON.stringify({ room, name: display.name, icon: display.icon }));
+  leave();
+}
+
+// Ao abrir o app, se ficou um destino guardado, entra nele.
+function autoJoinPendente() {
+  const cru = sessionStorage.getItem('pokecall.autojoin');
+  if (!cru) return;
+  sessionStorage.removeItem('pokecall.autojoin');
+  let alvo;
+  try { alvo = JSON.parse(cru); } catch { return; }
+  if (!alvo || !alvo.room || !nomeSalvo()) return;
+  $('inp-name').value = nomeSalvo();
+  setTimeout(() => join(alvo.room, { name: alvo.name, icon: alvo.icon }), 250);
+}
+
+/* ---- Convite que chegou ---- */
+
+function mostrarConvite(msg) {
+  convitePendente = msg;
+  const toast = $('invite-toast');
+  const av = $('invite-av');
+
+  av.textContent = '';
+  av.appendChild(avatarNode({ name: msg.from, avatar: msg.avatar }));
+
+  $('invite-text').textContent = `${msg.from} está chamando você para a ${msg.roomName || 'call'}.`;
+  toast.classList.remove('hidden');
+  SFX.peerJoin();
+
+  // Se o app estiver escondido na bandeja, aparece para a pessoa ver.
+  try { window.pokecall.overlay.focusApp(); } catch {}
+
+  clearTimeout(mostrarConvite._t);
+  mostrarConvite._t = setTimeout(fecharConvite, 45000);
+}
+
+function fecharConvite() {
+  $('invite-toast').classList.add('hidden');
+  convitePendente = null;
+}
+
+$('invite-accept').addEventListener('click', () => {
+  const c = convitePendente;
+  fecharConvite();
+  if (c) irParaSala(c.room, c.roomName);
+});
+
+$('invite-refuse').addEventListener('click', () => {
+  const c = convitePendente;
+  fecharConvite();
+  if (c) presenceSend({ type: 'invite-refused', to: c.fromId });
+});
+
+/* Ao abrir o app: entra na lista de online e, se veio de um convite aceito
+   estando em outra call, cai direto na sala certa. */
+startPresence();
+autoJoinPendente();

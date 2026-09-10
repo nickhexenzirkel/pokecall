@@ -36,6 +36,13 @@ contextBridge.exposeInMainWorld('pokecall', {
     focusApp: () => ipcRenderer.send('focus-main'),
   },
 
+  // Abrir junto com o Windows + bandeja.
+  startup: {
+    get: () => ipcRenderer.invoke('startup-get'),
+    set: (ligado) => ipcRenderer.invoke('startup-set', ligado),
+    onChanged: (cb) => ipcRenderer.on('startup-changed', (_e, v) => cb(v)),
+  },
+
   // Atualização automática.
   updates: {
     onAvailable: (cb) => ipcRenderer.on('update-available', (_e, v) => cb(v)),

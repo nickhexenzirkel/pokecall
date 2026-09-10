@@ -3,7 +3,7 @@
  * Cria a janela do app e expoe a captura de tela (desktopCapturer) para o renderer.
  */
 
-const { app, BrowserWindow, ipcMain, desktopCapturer, screen } = require('electron');
+const { app, BrowserWindow, ipcMain, desktopCapturer, screen, Tray, Menu } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
@@ -15,6 +15,86 @@ const { autoUpdater } = require('electron-updater');
 
 let mainWindow = null;
 let overlayWindow = null;
+let tray = null;
+
+// Fechar a janela NAO fecha o app: ele fica na bandeja (as setinhas do
+// Windows, ao lado do relogio). So sai de verdade pelo menu da bandeja.
+let saindoDeVez = false;
+// Foi aberto pelo Windows junto com o sistema? Entao comeca escondido.
+const abriuEscondido = process.argv.includes('--hidden');
+
+// So uma copia do app por vez — senao a bandeja fica com varios icones.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on('second-instance', () => mostrarJanela());
+}
+
+function mostrarJanela() {
+  if (!mainWindow || mainWindow.isDestroyed()) { createWindow(); return; }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+}
+
+/* ------- Abrir junto com o Windows ------- */
+
+function abrirComWindows() {
+  try { return app.getLoginItemSettings({ args: ['--hidden'] }).openAtLogin; }
+  catch { return false; }
+}
+
+function setAbrirComWindows(ligado) {
+  try {
+    app.setLoginItemSettings({
+      openAtLogin: !!ligado,
+      // Começa direto na bandeja, sem abrir a janela na cara da pessoa.
+      args: ['--hidden'],
+    });
+  } catch (err) {
+    console.error('setLoginItemSettings', err);
+  }
+  montarMenuBandeja();
+  return abrirComWindows();
+}
+
+/* ------- Ícone na bandeja ------- */
+
+function montarMenuBandeja() {
+  if (!tray) return;
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: 'Abrir PokeCall', click: mostrarJanela },
+    {
+      label: 'Abrir junto com o Windows',
+      type: 'checkbox',
+      checked: abrirComWindows(),
+      click: (item) => {
+        const valor = setAbrirComWindows(item.checked);
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('startup-changed', valor);
+        }
+      },
+    },
+    { type: 'separator' },
+    {
+      label: 'Sair do PokeCall',
+      click: () => { saindoDeVez = true; app.quit(); },
+    },
+  ]));
+}
+
+function criarBandeja() {
+  if (tray) return;
+  try {
+    tray = new Tray(path.join(__dirname, 'assets', 'icon.ico'));
+    tray.setToolTip('PokeCall');
+    montarMenuBandeja();
+    tray.on('click', mostrarJanela);        // clique simples abre
+    tray.on('double-click', mostrarJanela);
+  } catch (err) {
+    console.error('bandeja', err);
+  }
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -40,8 +120,32 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
+
+  // O X da barra de titulo apenas ESCONDE: o app continua na bandeja, com a
+  // chamada e a musica rodando. Sair mesmo, so pelo menu do icone.
+  win.on('close', (e) => {
+    if (saindoDeVez) return;
+    e.preventDefault();
+    win.hide();
+    avisarDaBandeja();
+  });
+
   mainWindow = win;
   return win;
+}
+
+// Da o aviso "estou aqui na bandeja" uma vez só, na primeira vez que a
+// pessoa fecha a janela.
+let jaAvisou = false;
+function avisarDaBandeja() {
+  if (jaAvisou || !tray) return;
+  jaAvisou = true;
+  try {
+    tray.displayBalloon({
+      title: 'PokeCall continua aberto',
+      content: 'Ele ficou aqui na bandeja. Para sair de vez, clique com o botão direito no ícone e escolha "Sair do PokeCall".',
+    });
+  } catch {}
 }
 
 // ------- Atualização automática (GitHub Releases) -------
@@ -280,16 +384,28 @@ app.whenReady().then(() => {
     }));
   });
 
-  createWindow();
+  // Abrir junto com o Windows (ligar/desligar pelas Configurações).
+  ipcMain.handle('startup-get', () => abrirComWindows());
+  ipcMain.handle('startup-set', (_e, ligado) => setAbrirComWindows(ligado));
+
+  criarBandeja();
+  const win = createWindow();
+  if (abriuEscondido) win.hide();   // subiu com o Windows: fica só na bandeja
   setupAutoUpdate();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    else mostrarJanela();
   });
 });
 
-app.on('before-quit', () => closeOverlay());
+app.on('before-quit', () => {
+  saindoDeVez = true;
+  closeOverlay();
+});
 
+// No Windows o app vive na bandeja mesmo sem janela aberta.
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
+  if (process.platform === 'darwin') return;
+  if (saindoDeVez) app.quit();
 });
