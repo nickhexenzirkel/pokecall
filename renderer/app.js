@@ -1335,8 +1335,12 @@ function addChat(who, text, avatar) {
 function pushMessagePop(name, text, avatar) {
   const box = $('msg-pops');
   if (!box) return;
-  // No modo Expandido o chat já fica visível -> não mostra os pop-ups.
+  // Só mostra pop-up quando ALGUÉM está transmitindo (há vídeo ao vivo).
+  // Sem transmissão, o chat já está visível ao lado -> não precisa de pop-up.
+  if (!document.querySelector('.tile.has-video')) return;
+  // No modo Expandido e na Tela cheia há notificações próprias -> sem pop-up aqui.
   if (!$('theater').classList.contains('hidden')) return;
+  if (!$('viewer').classList.contains('hidden')) return;
   const el = document.createElement('div');
   el.className = 'msg-pop';
 
