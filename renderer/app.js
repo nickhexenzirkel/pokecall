@@ -59,6 +59,15 @@ const peers = new Map();
 // Metadados (avatar) recebidos antes da conexao do peer existir.
 const pendingMeta = new Map();
 
+// Presenca (quem esta online) e convites. Declarado AQUI EM CIMA de proposito:
+// o app chama startPresence() logo no inicio quando ja tem um nome salvo, e
+// um "let" la no fim do arquivo ainda nao existiria nessa hora.
+let presenceWs = null;
+let presenceId = null;
+let peopleOnline = [];
+let presenceRetry = null;
+let convitePendente = null;
+
 // Audio: o som dos participantes sai por WebAudio (masterGain -> destino).
 // Esse caminho NÃO é capturado pela gravação de "áudio do sistema", então
 // quem compartilha a tela com áudio não devolve as vozes (sem eco).
@@ -2586,11 +2595,6 @@ function renderMusicResults(results) {
  * sala e mesmo minimizado na bandeja. Com isso a galera vê quem está online
  * e pode chamar você para uma sala.                                         */
 
-let presenceWs = null;
-let presenceId = null;
-let peopleOnline = [];
-let presenceRetry = null;
-let convitePendente = null;
 
 function nomeSalvo() {
   return (selfName || localStorage.getItem('pokecall.name') || '').trim();
