@@ -128,6 +128,14 @@
           </div>
         </div>
       </div>
+      <!-- Player do arquivo de vídeo (quem compartilha controla) — preenche o palco -->
+      <div id="movie-player" class="movie-player hidden">
+        <div class="movie-player-bar">
+          <span class="movie-player-title">Assistindo juntos — você controla o play/pause</span>
+          <button id="movie-close" class="viewer-btn" title="Parar de transmitir" data-icon="close"></button>
+        </div>
+        <video id="movie-el" controls></video>
+      </div>
     </main>
 
     <aside id="chat-panel" class="chat-panel">
@@ -206,15 +214,6 @@
     <input id="video-file-input" type="file" accept="video/*" style="display:none" />
     <div id="source-list" class="source-list"></div>
   </div>
-</div>
-
-<!-- ====== PLAYER DE VÍDEO (assistir junto, controlado por quem compartilha) ====== -->
-<div id="movie-player" class="movie-player hidden">
-  <div class="movie-player-bar">
-    <span class="movie-player-title">Assistindo juntos (você controla)</span>
-    <button id="movie-close" class="viewer-btn" title="Parar de transmitir" data-icon="close"></button>
-  </div>
-  <video id="movie-el" controls></video>
 </div>
 
 <!-- ====== CONFIGURAÇÕES ====== -->

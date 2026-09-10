@@ -817,6 +817,7 @@ function stopScreenShare() {
   const movieEl = $('movie-el');
   if (movieEl) { try { movieEl.pause(); } catch {} movieEl.removeAttribute('src'); movieEl.load(); }
   $('movie-player').classList.add('hidden');
+  $('grid').classList.remove('hidden'); // volta a mostrar as telhas
 
   hideSelfPreview();
 
@@ -845,6 +846,8 @@ async function shareVideoFile(file) {
 
   const movieEl = $('movie-el');
   movieEl.src = URL.createObjectURL(file);
+  $('grid').classList.add('hidden');            // player ocupa o palco (área grande)
+  $('theater').classList.add('hidden');
   $('movie-player').classList.remove('hidden');
   try { await movieEl.play(); } catch {}
 
