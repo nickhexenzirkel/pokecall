@@ -785,6 +785,10 @@ function stopScreenShare() {
 /* ======================= ASSISTIR ARQUIVO DE VÍDEO JUNTO (sem eco) ======================= */
 
 $('btn-watch-file').addEventListener('click', () => $('video-file-input').click());
+$('btn-watch').addEventListener('click', () => {
+  if (localScreenStream) stopScreenShare(); // se já está compartilhando algo, para
+  $('video-file-input').click();
+});
 $('video-file-input').addEventListener('change', (e) => {
   const f = e.target.files && e.target.files[0];
   e.target.value = '';
