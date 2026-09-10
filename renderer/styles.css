@@ -722,6 +722,25 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .update-btn:hover { filter: brightness(1.08); }
 
+/* ===================== ASSISTIR ARQUIVO DE VÍDEO ===================== */
+.watch-file-row {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  padding: 14px 20px; border-bottom: 1px solid var(--border);
+}
+.watch-file-hint { font-size: 12px; color: var(--text-mute); }
+.movie-player {
+  position: fixed; right: 16px; bottom: 92px; z-index: 60;
+  width: 440px; max-width: 82vw;
+  background: #000; border: 1px solid var(--border); border-radius: 12px;
+  overflow: hidden; box-shadow: 0 16px 44px rgba(0,0,0,0.6);
+}
+.movie-player-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 6px 6px 12px; background: var(--bg-2);
+}
+.movie-player-title { font-size: 12px; font-weight: 700; color: var(--text-dim); }
+#movie-el { width: 100%; display: block; max-height: 42vh; background: #000; }
+
 /* Scrollbars */
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb { background: #202225; border-radius: 10px; }

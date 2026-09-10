@@ -181,8 +181,22 @@
         </select>
       </label>
     </div>
+    <div class="watch-file-row">
+      <button id="btn-watch-file" class="btn btn-primary">Assistir um arquivo de vídeo junto — sem eco</button>
+      <span class="watch-file-hint">Transmite o vídeo direto (só o áudio do filme). Ideal para filmes que estão no seu PC.</span>
+    </div>
+    <input id="video-file-input" type="file" accept="video/*" style="display:none" />
     <div id="source-list" class="source-list"></div>
   </div>
+</div>
+
+<!-- ====== PLAYER DE VÍDEO (assistir junto, controlado por quem compartilha) ====== -->
+<div id="movie-player" class="movie-player hidden">
+  <div class="movie-player-bar">
+    <span class="movie-player-title">Assistindo juntos (você controla)</span>
+    <button id="movie-close" class="viewer-btn" title="Parar de transmitir" data-icon="close"></button>
+  </div>
+  <video id="movie-el" controls></video>
 </div>
 
 <!-- ====== CONFIGURAÇÕES ====== -->

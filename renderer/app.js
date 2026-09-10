@@ -770,11 +770,62 @@ function stopScreenShare() {
   localScreenStream.getTracks().forEach((t) => t.stop());
   localScreenStream = null;
 
+  // Se era "assistir arquivo", para o player.
+  const movieEl = $('movie-el');
+  if (movieEl) { try { movieEl.pause(); } catch {} movieEl.removeAttribute('src'); movieEl.load(); }
+  $('movie-player').classList.add('hidden');
+
   hideSelfPreview();
 
   const btn = $('btn-screen');
   btn.classList.remove('active');
   btn.querySelector('.ctrl-label').textContent = 'Tela';
+}
+
+/* ======================= ASSISTIR ARQUIVO DE VÍDEO JUNTO (sem eco) ======================= */
+
+$('btn-watch-file').addEventListener('click', () => $('video-file-input').click());
+$('video-file-input').addEventListener('change', (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (f) shareVideoFile(f);
+});
+$('movie-close').addEventListener('click', stopScreenShare);
+
+async function shareVideoFile(file) {
+  $('source-picker').classList.add('hidden');
+  if (localScreenStream) stopScreenShare();
+
+  const movieEl = $('movie-el');
+  movieEl.src = URL.createObjectURL(file);
+  $('movie-player').classList.remove('hidden');
+  try { await movieEl.play(); } catch {}
+
+  // captureStream = transmite o vídeo E o áudio do filme diretamente (sem passar
+  // pela captura do sistema) -> só o áudio do filme, sem as vozes da call -> sem eco.
+  const capture = movieEl.captureStream || movieEl.mozCaptureStream;
+  if (!capture) { addSystemChat('Seu sistema não suporta transmitir arquivo de vídeo.'); return; }
+  const stream = capture.call(movieEl);
+  localScreenStream = stream;
+
+  const q = QUALITY[$('quality-select').value] || QUALITY['1080p60'];
+  const hint = $('hint-select').value;
+  for (const state of peers.values()) {
+    if (!state.pc) continue;
+    for (const t of stream.getVideoTracks()) {
+      t.contentHint = hint;
+      state.screenSender = state.pc.addTrack(t, stream);
+      applyScreenEncoding(state.screenSender, q, hint);
+    }
+    for (const t of stream.getAudioTracks()) {
+      state.pc.addTrack(t, stream);
+    }
+  }
+
+  showSelfPreview(stream);
+  const btn = $('btn-screen');
+  btn.classList.add('active');
+  btn.querySelector('.ctrl-label').textContent = 'Parar';
 }
 
 // Define bitrate alto, framerate e como degradar sob rede ruim.
