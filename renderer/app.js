@@ -412,7 +412,6 @@ function handleSignal(msg) {
     case 'chat':
       if (msg.from !== selfId) {
         addChat(msg.name, msg.text, peers.get(msg.from)?.avatar);
-        notifyViewer(msg.name, msg.text);
       }
       break;
   }
@@ -1017,9 +1016,12 @@ function notifyViewer(name, text) {
   who.textContent = name + ': ';
   t.appendChild(who);
   renderMessageContent(t, text); // mostra emotes também
-  t.classList.remove('hidden');
+  t.classList.remove('hidden', 'leaving');
   clearTimeout(viewerToastTimer);
-  viewerToastTimer = setTimeout(() => t.classList.add('hidden'), 5000);
+  viewerToastTimer = setTimeout(() => {
+    t.classList.add('leaving');
+    setTimeout(() => t.classList.add('hidden'), 600);
+  }, 4000);
 }
 
 // Toca UMA faixa de áudio de um participante. Chamado para CADA faixa
@@ -1199,7 +1201,8 @@ function addChat(who, text, avatar) {
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 
-  pushMessagePop(who, text, avatar);
+  pushMessagePop(who, text, avatar); // pop-up no lado direito (tela normal)
+  notifyViewer(who, text);           // notificação dentro do vídeo em tela cheia
 }
 
 // Pop-up pequeno na tela (lado direito) com ícone + nome + mensagem.
@@ -1235,8 +1238,8 @@ function pushMessagePop(name, text, avatar) {
 
   setTimeout(() => {
     el.classList.add('leaving');
-    setTimeout(() => el.remove(), 300);
-  }, 5000);
+    setTimeout(() => el.remove(), 600);
+  }, 4000);
 }
 
 function updateMsgPopsOffset() {
