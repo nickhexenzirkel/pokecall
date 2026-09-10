@@ -821,6 +821,7 @@ function enterCall() {
   setupSelfAnalyser(selfState);
   updatePeerCount();
   updateConnBadge();
+  updateMsgPopsOffset();
 }
 
 function createTile(state) {
@@ -1165,6 +1166,7 @@ $('btn-chat').addEventListener('click', () => {
   panel.classList.toggle('hidden-panel');
   $('btn-chat').classList.toggle('active');
   if (!panel.classList.contains('hidden-panel')) $('chat-input').focus();
+  updateMsgPopsOffset();
 });
 
 function addChat(who, text, avatar) {
@@ -1196,7 +1198,55 @@ function addChat(who, text, avatar) {
   const box = $('chat-messages');
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
+
+  pushMessagePop(who, text, avatar);
 }
+
+// Pop-up pequeno na tela (lado direito) com ícone + nome + mensagem.
+function pushMessagePop(name, text, avatar) {
+  const box = $('msg-pops');
+  if (!box) return;
+  const el = document.createElement('div');
+  el.className = 'msg-pop';
+
+  const av = document.createElement('span');
+  av.className = 'chat-av';
+  if (avatar && AVATARS.includes(avatar)) {
+    const img = document.createElement('img');
+    img.src = avatarSrc(avatar);
+    av.appendChild(img);
+  } else {
+    av.textContent = initials(name);
+  }
+
+  const bodyEl = document.createElement('div');
+  bodyEl.className = 'chat-body';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = name;
+  const txt = document.createElement('span');
+  txt.className = 'chat-text';
+  renderMessageContent(txt, text);
+  bodyEl.append(who, txt);
+
+  el.append(av, bodyEl);
+  box.appendChild(el);
+  while (box.children.length > 4) box.removeChild(box.firstChild);
+
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 300);
+  }, 5000);
+}
+
+function updateMsgPopsOffset() {
+  const chat = $('chat-panel');
+  const pops = $('msg-pops');
+  if (!chat || !pops) return;
+  const open = !chat.classList.contains('hidden-panel');
+  pops.style.right = open ? chat.offsetWidth + 16 + 'px' : '16px';
+}
+window.addEventListener('resize', updateMsgPopsOffset);
 
 function addSystemChat(text) {
   const el = document.createElement('div');
