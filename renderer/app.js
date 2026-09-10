@@ -569,7 +569,8 @@ function handleSignal(msg) {
 
     case 'music-notice':
       showMusicNotice(msg.text, msg.kind);
-      if (msg.kind === 'ok' || msg.kind === 'erro') addSystemChat('♪ ' + msg.text);
+      // Nada de texto cinza: quem fala no chat é o DJ Emolga.
+      if (msg.dj || msg.kind === 'erro') addDjChat(msg.dj, msg.text, msg.kind);
       break;
 
     case 'music-results':
@@ -2163,7 +2164,10 @@ function setMusicVolume(v) {
   toPlayer('volume', { v: Math.round(v * 100) });
 }
 
-/* ---- A telha do Robô de Música, no meio da galera ---- */
+/* ---- O DJ Emolga: telha na grade + vinil no topo do chat ---- */
+
+const DJ_NOME = 'DJ Emolga';
+const DJ_FOTO = 'dj-emolga.png';
 
 function renderMusicBot() {
   const cur = musicState.current;
@@ -2174,22 +2178,146 @@ function renderMusicBot() {
       musicBot = null;
     }
     $('btn-music').classList.remove('active');
+    updateNowPlaying();
     return;
   }
 
   if (!musicBot) {
-    musicBot = { id: 'music-bot', name: 'Robô de Música', avatar: null, tile: null };
+    musicBot = { id: 'music-bot', name: DJ_NOME, avatar: null, tile: null };
     createTile(musicBot);
     musicBot.tile.root.classList.add('tile-bot');
-    musicBot.tile.avatar.innerHTML = ICONS.music;
+    const foto = document.createElement('img');
+    foto.src = DJ_FOTO;
+    foto.alt = '';
+    musicBot.tile.avatar.innerHTML = '';
+    musicBot.tile.avatar.appendChild(foto);
     musicBot.tile.root.addEventListener('click', openMusic);
     musicBot.tile.root.title = 'Clique para ver a fila de músicas';
   }
 
-  musicBot.tile.nameTag.textContent = '♪ ' + cur.title;
+  musicBot.tile.nameTag.textContent = DJ_NOME;
   musicBot.tile.root.classList.toggle('speaking', !musicState.paused);
   $('btn-music').classList.toggle('active', !musicState.paused);
+  updateNowPlaying();
 }
+
+// A "capa do disco" girando no topo do chat.
+function updateNowPlaying() {
+  const bar = $('np-bar');
+  const cur = musicState.current;
+
+  if (!cur) { bar.classList.add('hidden'); return; }
+
+  bar.classList.remove('hidden');
+  bar.classList.toggle('parado', musicState.paused);
+  $('np-eyebrow').textContent = musicState.paused ? 'Pausado' : 'Tocando agora';
+  $('np-title').textContent = cur.title;
+  $('np-artist').textContent = cur.artist || '';
+  $('np-label').style.backgroundImage = cur.thumb ? `url("${cur.thumb}")` : '';
+}
+
+$('np-bar').addEventListener('click', openMusic);
+
+/* ---- Mensagens do DJ Emolga no chat ---- */
+
+// Cor fixa por pessoa (a mesma sempre, tipo Discord).
+const CORES_NOME = ['#f6c945', '#7cc4ff', '#77dd77', '#ff9ecd', '#c39bff', '#ffb26b', '#5ce1e6'];
+function corDoNome(nome) {
+  let h = 0;
+  for (let i = 0; i < nome.length; i++) h = (h * 31 + nome.charCodeAt(i)) >>> 0;
+  return CORES_NOME[h % CORES_NOME.length];
+}
+
+function pedaco(texto, classe, cor) {
+  const s = document.createElement('span');
+  if (classe) s.className = classe;
+  if (cor) s.style.color = cor;
+  s.textContent = texto;
+  return s;
+}
+
+// Monta o miolo da mensagem conforme o que aconteceu.
+function corpoDoDj(dj, textoCru) {
+  const partes = [];
+  const quem = dj && dj.who ? pedaco(dj.who, 'dj-quem', corDoNome(dj.who)) : null;
+  const musica = dj && dj.title ? pedaco(dj.title, 'dj-musica') : null;
+
+  switch (dj && dj.act) {
+    case 'play':
+      partes.push(quem, pedaco(' mandou tocar '), musica);
+      if (dj.artist) partes.push(pedaco(' · ' + dj.artist, 'dj-artista'));
+      break;
+
+    case 'queue':
+      partes.push(quem, pedaco(' botou na fila '), musica);
+      if (dj.artist) partes.push(pedaco(' · ' + dj.artist, 'dj-artista'));
+      if (dj.count > 1) partes.push(pedaco(' e mais ' + (dj.count - 1), 'dj-artista'));
+      break;
+
+    case 'now':
+      partes.push(pedaco('Tocando agora '), musica);
+      if (dj.artist) partes.push(pedaco(' · ' + dj.artist, 'dj-artista'));
+      if (dj.who) {
+        partes.push(pedaco(' — pedida por '), pedaco(dj.who, 'dj-quem', corDoNome(dj.who)));
+      }
+      break;
+
+    case 'skip':
+      partes.push(quem, pedaco(' pulou a música'));
+      break;
+
+    case 'stop':
+      partes.push(quem, pedaco(' parou o som'));
+      break;
+
+    case 'remove':
+      partes.push(quem, pedaco(' tirou '), musica, pedaco(' da fila'));
+      break;
+
+    case 'blocked':
+      partes.push(musica, pedaco(' não pode tocar fora do YouTube — pulei essa'));
+      break;
+
+    default:
+      partes.push(pedaco(textoCru || ''));
+  }
+  return partes.filter(Boolean);
+}
+
+function addDjChat(dj, texto, kind) {
+  const el = document.createElement('div');
+  el.className = 'chat-msg dj' + (kind === 'erro' ? ' dj-erro' : '');
+
+  const av = document.createElement('span');
+  av.className = 'chat-av dj-av';
+  const foto = document.createElement('img');
+  foto.src = DJ_FOTO;
+  foto.alt = '';
+  av.appendChild(foto);
+
+  const body = document.createElement('div');
+  body.className = 'chat-body';
+
+  const linhaNome = document.createElement('span');
+  linhaNome.className = 'who dj-who';
+  linhaNome.textContent = DJ_NOME;
+  const tag = document.createElement('span');
+  tag.className = 'dj-tag';
+  tag.textContent = 'DJ';
+  linhaNome.appendChild(tag);
+
+  const txt = document.createElement('span');
+  txt.className = 'chat-text dj-texto';
+  corpoDoDj(dj, texto).forEach((n) => txt.appendChild(n));
+
+  body.append(linhaNome, txt);
+  el.append(av, body);
+
+  const box = $('chat-messages');
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+}
+
 
 /* ---- Painel ---- */
 

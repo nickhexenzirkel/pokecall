@@ -95,12 +95,10 @@ function leaveRoom(ws) {
   }
   if (room.size === 0) {
     rooms.delete(roomId);
-    // Sala vazia: para a musica e limpa a fila.
-    const m = musicRooms.get(roomId);
-    if (m) {
-      if (m.timer) clearTimeout(m.timer);
-      musicRooms.delete(roomId);
-    }
+    // Sala vazia: o DJ NAO para. A musica segue tocando (e a fila andando)
+    // por um tempo, entao quem voltar cai no mesmo ponto. So depois disso
+    // e que a sala e esquecida de vez.
+    agendarEsquecerMusica(roomId);
   }
   console.log(`[${roomId}] ${peerId} saiu. Restam: ${room.size}`);
   broadcastLobby();
@@ -120,6 +118,33 @@ function getMusic(roomId) {
     musicRooms.set(roomId, { queue: [], current: null, startedAt: 0, paused: false, pausedPos: 0, timer: null });
   }
   return musicRooms.get(roomId);
+}
+
+// Quanto tempo a musica continua tocando numa sala que ficou vazia.
+const ESQUECER_MUSICA_MS = 5 * 60 * 1000;
+
+// Sala vazia: marca para esquecer daqui a pouco (mas continua tocando).
+function agendarEsquecerMusica(roomId) {
+  const m = musicRooms.get(roomId);
+  if (!m || (!m.current && !m.queue.length)) {
+    if (m && m.timer) clearTimeout(m.timer);
+    musicRooms.delete(roomId);
+    return;
+  }
+  if (m.esquecer) clearTimeout(m.esquecer);
+  m.esquecer = setTimeout(() => {
+    const atual = musicRooms.get(roomId);
+    if (!atual) return;
+    if (atual.timer) clearTimeout(atual.timer);
+    musicRooms.delete(roomId);
+    console.log(`[${roomId}] sala vazia faz tempo — o DJ desligou.`);
+  }, ESQUECER_MUSICA_MS);
+}
+
+// Alguem voltou: cancela o "esquecer".
+function cancelarEsquecerMusica(roomId) {
+  const m = musicRooms.get(roomId);
+  if (m && m.esquecer) { clearTimeout(m.esquecer); m.esquecer = null; }
 }
 
 // Posicao atual da musica, em milissegundos.
@@ -148,10 +173,12 @@ function broadcastMusic(roomId) {
   for (const [, peer] of room) send(peer.ws, payload);
 }
 
-function musicNotice(roomId, text, kind) {
+function musicNotice(roomId, text, kind, dj) {
   const room = rooms.get(roomId);
   if (!room) return;
-  for (const [, peer] of room) send(peer.ws, { type: 'music-notice', text, kind: kind || 'info' });
+  const payload = { type: 'music-notice', text, kind: kind || 'info' };
+  if (dj) payload.dj = dj;           // { act, who, title, artist, count }
+  for (const [, peer] of room) send(peer.ws, payload);
 }
 
 // Agenda a troca automatica para quando a musica atual acabar.
@@ -162,10 +189,13 @@ function armMusicTimer(roomId) {
   if (!m.current || m.paused) return;
   const total = (m.current.duration || 0) * 1000;
   if (!total) return; // duracao ainda desconhecida
-  m.timer = setTimeout(() => playNext(roomId), Math.max(500, total - musicPos(m) + 1500));
+  m.timer = setTimeout(() => playNext(roomId, true), Math.max(500, total - musicPos(m) + 1500));
 }
 
-function playNext(roomId) {
+// anunciar = o DJ avisa no chat qual musica entrou (usado quando a proxima
+// da fila comeca sozinha, ou depois de pular). Quando alguem acabou de pedir
+// a musica, quem avisa e o enqueue, com a frase da pessoa.
+function playNext(roomId, anunciar) {
   const m = getMusic(roomId);
   if (m.timer) { clearTimeout(m.timer); m.timer = null; }
   m.current = m.queue.shift() || null;
@@ -174,6 +204,12 @@ function playNext(roomId) {
   m.startedAt = Date.now();
   if (m.current) armMusicTimer(roomId);
   broadcastMusic(roomId);
+
+  if (anunciar && m.current) {
+    musicNotice(roomId, `Tocando agora: "${m.current.title}".`, 'ok', {
+      act: 'now', title: m.current.title, artist: m.current.artist, who: m.current.by,
+    });
+  }
 }
 
 function stopMusic(roomId) {
@@ -204,7 +240,9 @@ function enqueue(roomId, tracks, byName) {
 
   if (!m.current) {
     playNext(roomId);
-    musicNotice(roomId, `${byName} colocou "${aceitas[0].title}" para tocar.`, 'ok');
+    musicNotice(roomId, `${byName} colocou "${aceitas[0].title}" para tocar.`, 'ok', {
+      act: 'play', who: byName, title: aceitas[0].title, artist: aceitas[0].artist,
+    });
   } else {
     broadcastMusic(roomId);
     musicNotice(
@@ -212,7 +250,8 @@ function enqueue(roomId, tracks, byName) {
       aceitas.length > 1
         ? `${byName} adicionou ${aceitas.length} músicas na fila.`
         : `${byName} adicionou "${aceitas[0].title}" na fila.`,
-      'ok'
+      'ok',
+      { act: 'queue', who: byName, title: aceitas[0].title, artist: aceitas[0].artist, count: aceitas.length }
     );
   }
 }
@@ -299,8 +338,8 @@ async function handleMusic(ws, msg) {
 
     case 'skip':
       if (!m.current && !m.queue.length) return;
-      musicNotice(roomId, `${name} pulou a música.`);
-      playNext(roomId);
+      musicNotice(roomId, `${name} pulou a música.`, 'ok', { act: 'skip', who: name });
+      playNext(roomId, true);
       break;
 
     // O app avisa a duracao assim que o player carrega o video.
@@ -315,14 +354,16 @@ async function handleMusic(ws, msg) {
 
     // O video acabou no app de alguem: passa para a proxima.
     case 'ended':
-      if (m.current && msg.id === m.current.id && !m.paused) playNext(roomId);
+      if (m.current && msg.id === m.current.id && !m.paused) playNext(roomId, true);
       break;
 
     // O video nao pode ser tocado fora do YouTube (ou sumiu): pula sozinho.
     case 'failed':
       if (!m.current || msg.id !== m.current.id) return;
-      musicNotice(roomId, `"${m.current.title}" não pode tocar fora do YouTube — pulando.`, 'erro');
-      playNext(roomId);
+      musicNotice(roomId, `"${m.current.title}" não pode tocar fora do YouTube — pulando.`, 'erro', {
+        act: 'blocked', title: m.current.title,
+      });
+      playNext(roomId, true);
       break;
 
     // Arrastar uma música para outro lugar da fila.
@@ -344,7 +385,9 @@ async function handleMusic(ws, msg) {
       const i = Math.round(Number(msg.index));
       if (i >= 0 && i < m.queue.length) {
         const [out] = m.queue.splice(i, 1);
-        musicNotice(roomId, `${name} tirou "${out.title}" da fila.`);
+        musicNotice(roomId, `${name} tirou "${out.title}" da fila.`, 'ok', {
+          act: 'remove', who: name, title: out.title,
+        });
         broadcastMusic(roomId);
       }
       break;
@@ -352,7 +395,7 @@ async function handleMusic(ws, msg) {
 
     case 'stop':
       if (!m.current && !m.queue.length) return;
-      musicNotice(roomId, `${name} parou a música.`);
+      musicNotice(roomId, `${name} parou a música.`, 'ok', { act: 'stop', who: name });
       stopMusic(roomId);
       break;
 
@@ -404,7 +447,9 @@ wss.on('connection', (ws) => {
           if (id === peerId) continue;
           send(peer.ws, { type: 'peer-joined', id: peerId, name, avatar });
         }
-        // Se ja tem musica tocando na sala, quem chegou entra no mesmo ponto.
+        // Se ja tem musica tocando na sala, quem chegou entra no mesmo ponto
+        // (inclusive se a sala tinha ficado vazia por alguns minutos).
+        cancelarEsquecerMusica(roomId);
         send(ws, musicView(roomId));
 
         console.log(`[${roomId}] ${name} (${peerId}) entrou. Total: ${room.size}`);
