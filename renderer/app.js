@@ -119,6 +119,7 @@ const ICONS = {
   attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
   send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
   theater: SVG('<rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
+  lock: SVG('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
 };
 
 // Emotes do chat (arquivos em renderer/emotes/). GIFs animam sozinhos em <img>.
@@ -278,6 +279,22 @@ document.querySelectorAll('.room-card').forEach((card) =>
   card.addEventListener('click', () => join(card.dataset.room))
 );
 
+// ---- Sala privada (id secreto derivado de nome + senha) ----
+async function roomHash(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].slice(0, 8).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function joinPrivate() {
+  const rn = $('priv-name').value.trim();
+  const pw = $('priv-pass').value;
+  if (!rn) return setLobbyStatus('Dê um nome à sala privada.', true);
+  if (!pw) return setLobbyStatus('Defina uma senha para a sala.', true);
+  const id = 'priv-' + (await roomHash(rn.toLowerCase() + '::' + pw));
+  join(id, { name: rn, icon: 'lock' });
+}
+$('btn-priv').addEventListener('click', joinPrivate);
+$('priv-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') joinPrivate(); });
+
 // Se já tem nome salvo de antes, pula a etapa 1 e vai direto para as salas.
 if (($('inp-name').value || '').trim()) {
   goToRoomStep();
@@ -319,12 +336,24 @@ function setLobbyStatus(text, isError = false) {
   el.classList.toggle('error', isError);
 }
 
-async function join(room) {
+let roomDisplayName = '';
+let roomIcon = 'chat';
+
+async function join(room, display) {
   const name = $('inp-name').value.trim();
   const server = DEFAULT_SERVER;
 
   if (!name) return setLobbyStatus('Digite seu nome primeiro.', true);
-  if (!ROOMS[room]) return;
+
+  if (display) {
+    roomDisplayName = display.name;
+    roomIcon = display.icon || 'chat';
+  } else if (ROOMS[room]) {
+    roomDisplayName = ROOMS[room].name;
+    roomIcon = ROOMS[room].icon;
+  } else {
+    return; // sala desconhecida
+  }
 
   localStorage.setItem('pokecall.name', name);
 
@@ -874,9 +903,8 @@ function initials(name) {
 function enterCall() {
   lobby.classList.add('hidden');
   callView.classList.remove('hidden');
-  const info = ROOMS[roomId] || { name: roomId, icon: 'chat' };
-  $('room-name').textContent = info.name;
-  $('room-badge').innerHTML = ICONS[info.icon] || '';
+  $('room-name').textContent = roomDisplayName || roomId;
+  $('room-badge').innerHTML = ICONS[roomIcon] || ICONS.chat;
   updateMicButton();
 
   const selfState = {

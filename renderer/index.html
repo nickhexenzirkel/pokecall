@@ -84,6 +84,17 @@
             <span class="room-people" data-people="conversas"></span>
           </button>
         </div>
+
+        <details class="private-room">
+          <summary><span class="priv-ic" data-icon="lock"></span> Criar ou entrar em sala privada</summary>
+          <div class="private-fields">
+            <input id="priv-name" type="text" placeholder="Nome da sala privada" maxlength="40" autocomplete="off" />
+            <input id="priv-pass" type="password" placeholder="Senha" maxlength="64" autocomplete="off" />
+            <button id="btn-priv" class="btn btn-primary">Entrar na sala privada</button>
+            <small>Quem souber o nome e a senha entra na mesma sala. Sem a senha certa, não dá pra achar.</small>
+          </div>
+        </details>
+
         <button id="btn-back" class="btn-back"><span class="back-ic" data-icon="back"></span> trocar nome ou personagem</button>
       </div>
 
