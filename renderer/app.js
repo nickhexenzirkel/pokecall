@@ -126,6 +126,7 @@ const ICONS = {
   attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
   send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
   theater: SVG('<polyline points="14 4 20 4 20 10"/><polyline points="10 20 4 20 4 14"/><line x1="20" y1="4" x2="13.5" y2="10.5"/><line x1="4" y1="20" x2="10.5" y2="13.5"/>'),
+  pin: SVG('<line x1="12" y1="17" x2="12" y2="22"/><path d="M9 3h6l-1 6 3.5 3.5a1 1 0 0 1-.7 1.7H6.2a1 1 0 0 1-.7-1.7L9 9z"/>'),
   lock: SVG('<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>'),
 };
 
@@ -601,6 +602,7 @@ function updateConnBadge() {
   else if (connected > 0) setBadge('ok', 'conectado');
   else if (failed > 0) setBadge('bad', 'reconectando…');
   else setBadge('', 'conectando…');
+  pushOverlayState();
 }
 
 async function onPeerSignal(peerId, data) {
@@ -654,6 +656,73 @@ function closePeer(peerId) {
   peers.delete(peerId);
 }
 
+/* =============== JANELA SUSPENSA (OVERLAY) ===============
+ * Janelinha sempre no topo para falar/comentar sem sair do que se está
+ * assistindo. Ela só desenha; o estado e as mensagens saem daqui.
+ */
+const overlayApi = window.pokecall && window.pokecall.overlay;
+let overlayOn = false;
+
+$('btn-overlay').addEventListener('click', () => overlayApi && overlayApi.toggle());
+
+if (overlayApi) {
+  overlayApi.onVisible((visible) => {
+    overlayOn = !!visible;
+    $('btn-overlay').classList.toggle('active', overlayOn);
+    if (overlayOn) pushOverlayState();
+  });
+
+  overlayApi.onAction((a) => {
+    if (!a) return;
+    if (a.type === 'ready') {
+      pushOverlayState();
+    } else if (a.type === 'mic') {
+      toggleMic();
+    } else if (a.type === 'chat' && a.text) {
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(JSON.stringify({ type: 'chat', room: roomId, text: a.text }));
+      addChat(selfName, a.text, selectedAvatar);
+    }
+  });
+}
+
+// Estado (microfone, conexão, quem transmite) -> janelinha.
+function pushOverlayState() {
+  if (!overlayApi || !overlayOn) return;
+  let sharing = null;
+  for (const [, st] of peers) {
+    if (st.videoStream && st.name) { sharing = st.name; break; }
+  }
+  if (!sharing && localScreenStream) sharing = 'Você';
+  overlayApi.push({
+    type: 'state',
+    mic: micEnabled,
+    sharing,
+    room: roomDisplayName || (ROOMS[roomId] && ROOMS[roomId].name) || 'PokeCall',
+    connected: !!(ws && ws.readyState === WebSocket.OPEN),
+  });
+}
+
+// Mensagem nova -> janelinha. Manda o texto já quebrado em pedaços para o
+// overlay não precisar conhecer a lista de emotes.
+function pushOverlayMessage(name, text, avatar) {
+  if (!overlayApi || !overlayOn) return;
+  const parts = [];
+  for (const part of String(text).split(/(:[a-z0-9_]+:)/i)) {
+    if (!part) continue;
+    const m = part.match(/^:([a-z0-9_]+):$/i);
+    const id = m && m[1].toLowerCase();
+    if (id && EMOTES[id]) parts.push({ t: 'emote', v: emoteSrc(id) });
+    else parts.push({ t: 'text', v: part });
+  }
+  overlayApi.push({
+    type: 'msg',
+    name,
+    avatarSrc: avatar && AVATARS.includes(avatar) ? avatarSrc(avatar) : null,
+    parts,
+  });
+}
+
 /* ======================= MICROFONE ======================= */
 
 $('btn-mic').addEventListener('click', toggleMic);
@@ -674,6 +743,7 @@ function updateMicButton() {
   btn.classList.toggle('active', micEnabled);
   btn.querySelector('.ctrl-icon').innerHTML = micEnabled ? ICONS.mic : ICONS.micOff;
   btn.querySelector('.ctrl-label').textContent = micEnabled ? 'Ligado' : 'Mudo';
+  pushOverlayState();
   // Botão de microfone do modo tela cheia (vídeo).
   const vmic = $('viewer-mic');
   if (vmic) {
@@ -1014,6 +1084,7 @@ function showVideo(state) {
   const v = t.video;
   if (v.srcObject !== state.videoStream) v.srcObject = state.videoStream;
   t.root.classList.add('has-video');
+  pushOverlayState();
   // Garante a reprodução assim que os metadados/quadros chegam (evita tela preta).
   const tryPlay = () => v.play().catch(() => {});
   tryPlay();
@@ -1049,6 +1120,7 @@ function hideVideo(state) {
   const t = state.tile;
   if (!t) return;
   t.root.classList.remove('has-video');
+  pushOverlayState();
   t.video.srcObject = null;
   const b = t.root.querySelector('.tile-badge-share');
   if (b) b.remove();
@@ -1410,6 +1482,7 @@ function addChat(who, text, avatar) {
   box.scrollTop = box.scrollHeight;
 
   notifyViewer(who, text, avatar);   // notificação dentro do vídeo em tela cheia
+  pushOverlayMessage(who, text, avatar); // janelinha sempre no topo
 }
 
 function addSystemChat(text) {

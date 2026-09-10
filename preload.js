@@ -16,6 +16,21 @@ contextBridge.exposeInMainWorld('pokecall', {
     close: () => ipcRenderer.send('win-close'),
   },
 
+  // Janela suspensa (overlay sempre no topo).
+  overlay: {
+    toggle: () => ipcRenderer.send('overlay-toggle'),
+    close: () => ipcRenderer.send('overlay-close'),
+    onVisible: (cb) => ipcRenderer.on('overlay-visible', (_e, v) => cb(v)),
+    // App -> overlay (estado e mensagens).
+    push: (payload) => ipcRenderer.send('overlay-state', payload),
+    onState: (cb) => ipcRenderer.on('overlay-state', (_e, s) => cb(s)),
+    // Overlay -> app (microfone, mensagem enviada).
+    action: (payload) => ipcRenderer.send('overlay-action', payload),
+    onAction: (cb) => ipcRenderer.on('overlay-action', (_e, a) => cb(a)),
+    resize: (h) => ipcRenderer.send('overlay-resize', h),
+    focusApp: () => ipcRenderer.send('focus-main'),
+  },
+
   // Atualização automática.
   updates: {
     onAvailable: (cb) => ipcRenderer.on('update-available', (_e, v) => cb(v)),
