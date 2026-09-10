@@ -140,6 +140,11 @@ const EMOTES = {
   haunterok: 'haunterok.png',
   sylveonsmug: 'sylveonsmug.png',
   gengarcool: 'gengarcool.png',
+  gamblingschool: 'gamblingschool.gif',
+  masho1: 'masho1.webp',
+  masho2: 'masho2.webp',
+  masho3: 'masho3.webp',
+  masho4: 'masho4.webp',
 };
 function emoteSrc(id) { return `emotes/${EMOTES[id]}`; }
 
