@@ -461,6 +461,10 @@ function createPeer(peerId, name, avatar) {
       state.screenSender = pc.addTrack(track, localScreenStream);
       applyScreenEncoding(state.screenSender);
     }
+    // Também envia o ÁUDIO da tela (senão quem entra depois vê mas não ouve).
+    for (const track of localScreenStream.getAudioTracks()) {
+      pc.addTrack(track, localScreenStream);
+    }
   }
 
   // ---- Canal de dados (envio de fotos/vídeos P2P) ----
