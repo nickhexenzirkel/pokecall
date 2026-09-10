@@ -118,6 +118,7 @@ const ICONS = {
   smile: SVG('<circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/>'),
   attach: SVG('<path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>'),
   send: SVG('<line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>'),
+  theater: SVG('<rect x="2" y="4" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/>'),
 };
 
 // Emotes do chat (arquivos em renderer/emotes/). GIFs animam sozinhos em <img>.
@@ -853,9 +854,9 @@ function createTile(state) {
     });
   }
 
-  // Duplo-clique numa telha com vídeo -> expandir em tela cheia.
+  // Duplo-clique numa telha com vídeo -> modo Expandido.
   root.addEventListener('dblclick', () => {
-    if (root.classList.contains('has-video')) openViewer(state);
+    if (root.classList.contains('has-video')) openTheater(state);
   });
 }
 
@@ -890,13 +891,24 @@ function showVideo(state) {
     b.textContent = 'AO VIVO';
     t.root.appendChild(b);
   }
-  if (!t.root.querySelector('.tile-expand')) {
-    const ex = document.createElement('button');
-    ex.className = 'tile-expand';
-    ex.title = 'Expandir (tela cheia)';
-    ex.innerHTML = ICONS.expand;
-    ex.addEventListener('click', (e) => { e.stopPropagation(); openViewer(state); });
-    t.root.appendChild(ex);
+  if (!t.root.querySelector('.tile-actions')) {
+    const acts = document.createElement('div');
+    acts.className = 'tile-actions';
+
+    const th = document.createElement('button');
+    th.className = 'tile-btn';
+    th.title = 'Expandir (mantém chat e controles)';
+    th.innerHTML = ICONS.theater;
+    th.addEventListener('click', (e) => { e.stopPropagation(); openTheater(state); });
+
+    const fs = document.createElement('button');
+    fs.className = 'tile-btn';
+    fs.title = 'Tela cheia';
+    fs.innerHTML = ICONS.expand;
+    fs.addEventListener('click', (e) => { e.stopPropagation(); openViewer(state); });
+
+    acts.append(th, fs);
+    t.root.appendChild(acts);
   }
 }
 
@@ -907,15 +919,44 @@ function hideVideo(state) {
   t.video.srcObject = null;
   const b = t.root.querySelector('.tile-badge-share');
   if (b) b.remove();
-  const ex = t.root.querySelector('.tile-expand');
-  if (ex) ex.remove();
-  // Se o visualizador estava mostrando esta pessoa, fecha.
+  const acts = t.root.querySelector('.tile-actions');
+  if (acts) acts.remove();
+  // Se estava mostrando esta pessoa em tela cheia ou expandido, fecha.
   if (viewerState === state) closeViewer();
+  if (theaterState === state) closeTheater();
 }
 
 /* ======================= VISUALIZADOR (tela cheia) ======================= */
 
 let viewerState = null;
+let theaterState = null;
+
+// ---- Modo EXPANDIDO (preenche o palco, mantém chat e controles) ----
+function openTheater(state) {
+  if (!state) return;
+  // Se estava em tela cheia, sai dela primeiro.
+  if (!$('viewer').classList.contains('hidden')) closeViewer();
+  theaterState = state;
+  const v = $('theater-video');
+  v.srcObject = state.videoStream;
+  v.muted = true;
+  $('theater-name').textContent = state.name;
+  $('grid').classList.add('hidden');
+  $('theater').classList.remove('hidden');
+  v.play().catch(() => {});
+}
+
+function closeTheater() {
+  $('theater').classList.add('hidden');
+  $('grid').classList.remove('hidden');
+  const v = $('theater-video');
+  try { v.pause(); } catch {}
+  v.srcObject = null;
+  theaterState = null;
+}
+
+$('theater-close').addEventListener('click', closeTheater);
+$('theater-fs').addEventListener('click', () => { if (theaterState) openViewer(theaterState); });
 
 function openViewer(state) {
   if (!state) return;
@@ -976,6 +1017,9 @@ function closeViewer() {
   v.style.display = '';
   const img = document.getElementById('viewer-img');
   if (img) { img.style.display = 'none'; img.src = ''; }
+  // Recolhe o chat flutuante ao sair da tela cheia.
+  $('chat-panel').classList.remove('floating');
+  $('viewer-chat-toggle').classList.remove('active');
   viewerState = null;
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
 }
@@ -985,6 +1029,15 @@ $('viewer-fs').addEventListener('click', () => {
   const el = $('viewer');
   if (document.fullscreenElement) document.exitFullscreen().catch(() => {});
   else el.requestFullscreen().catch(() => {});
+});
+
+// Abrir/ocultar o chat (barra lateral flutuante) dentro da tela cheia.
+$('viewer-chat-toggle').addEventListener('click', () => {
+  const chat = $('chat-panel');
+  const floating = chat.classList.toggle('floating');
+  chat.classList.remove('hidden-panel');
+  $('viewer-chat-toggle').classList.toggle('active', floating);
+  if (floating) $('chat-input').focus();
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape' || $('viewer').classList.contains('hidden')) return;
@@ -1020,12 +1073,12 @@ function notifyViewer(name, text) {
   renderMessageContent(el, text); // mostra emotes também
 
   box.appendChild(el);
-  while (box.children.length > 5) box.removeChild(box.firstChild);
+  while (box.children.length > 10) box.removeChild(box.firstChild);
 
   setTimeout(() => {
     el.classList.add('leaving');
     setTimeout(() => el.remove(), 600);
-  }, 4000);
+  }, 8000);
 }
 
 // Toca UMA faixa de áudio de um participante. Chamado para CADA faixa
@@ -1213,6 +1266,8 @@ function addChat(who, text, avatar) {
 function pushMessagePop(name, text, avatar) {
   const box = $('msg-pops');
   if (!box) return;
+  // No modo Expandido o chat já fica visível -> não mostra os pop-ups.
+  if (!$('theater').classList.contains('hidden')) return;
   const el = document.createElement('div');
   el.className = 'msg-pop';
 
@@ -1238,12 +1293,12 @@ function pushMessagePop(name, text, avatar) {
 
   el.append(av, bodyEl);
   box.appendChild(el);
-  while (box.children.length > 4) box.removeChild(box.firstChild);
+  while (box.children.length > 10) box.removeChild(box.firstChild);
 
   setTimeout(() => {
     el.classList.add('leaving');
     setTimeout(() => el.remove(), 600);
-  }, 4000);
+  }, 8000);
 }
 
 function updateMsgPopsOffset() {

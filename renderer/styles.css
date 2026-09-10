@@ -281,7 +281,7 @@ button { font-family: inherit; cursor: pointer; }
 .badge.bad { background: rgba(218,55,55,0.18); color: var(--danger-2); }
 .peer-count { font-size: 13px; color: var(--text-dim); }
 
-.stage { grid-area: stage; overflow: auto; padding: 16px; min-width: 0; min-height: 0; }
+.stage { grid-area: stage; position: relative; overflow: auto; padding: 16px; min-width: 0; min-height: 0; }
 .grid {
   display: grid;
   gap: 12px;
@@ -629,19 +629,49 @@ input[type="range"]::-webkit-slider-thumb {
 .viewer-msg b { color: var(--accent); }
 .viewer-msg .chat-emote { height: 20px; vertical-align: middle; }
 
-/* Botão de expandir na telha (aparece no hover, quando há vídeo) */
-.tile-expand {
+/* Botões da telha (aparecem no hover, quando há vídeo) */
+.tile-actions {
   position: absolute; right: 10px; top: 10px; z-index: 3;
-  width: 34px; height: 34px; display: none; place-items: center;
+  display: none; gap: 6px;
+}
+.tile.has-video:hover .tile-actions { display: flex; }
+.tile-btn {
+  width: 34px; height: 34px;
+  display: grid; place-items: center;
   background: rgba(0,0,0,0.55); color: #fff;
   border: none; border-radius: 9px; cursor: pointer;
   transition: background 0.15s;
 }
-.tile-expand svg { width: 17px; height: 17px; }
-.tile-expand:hover { background: rgba(0,0,0,0.8); }
-.tile.has-video:hover .tile-expand { display: grid; }
-/* Quando há vídeo, o "AO VIVO" vai para a esquerda pra não cobrir o expandir */
+.tile-btn svg { width: 17px; height: 17px; }
+.tile-btn:hover { background: rgba(0,0,0,0.8); }
+/* Quando há vídeo, o "AO VIVO" vai para a esquerda pra não cobrir os botões */
 .tile.has-video .tile-badge-share { right: auto; left: 10px; top: 10px; }
+
+/* ===================== MODO EXPANDIDO (theater) ===================== */
+.theater {
+  position: absolute; inset: 16px;
+  background: #000; border-radius: var(--radius); overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+}
+.theater video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.theater-bar {
+  position: absolute; top: 0; left: 0; right: 0;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 14px;
+  background: linear-gradient(180deg, rgba(0,0,0,0.65), rgba(0,0,0,0));
+  opacity: 0; transition: opacity 0.2s;
+}
+.theater:hover .theater-bar { opacity: 1; }
+.theater-name { font-size: 14px; font-weight: 700; color: #fff; text-shadow: 0 1px 3px rgba(0,0,0,0.8); }
+.theater-actions { display: flex; gap: 8px; }
+
+/* Chat flutuante (barra lateral) dentro da tela cheia */
+.chat-panel.floating {
+  position: fixed; top: 0; right: 0; bottom: 0;
+  width: 340px; max-width: 85vw;
+  z-index: 66;
+  box-shadow: -8px 0 30px rgba(0,0,0,0.5);
+}
 
 /* ===================== POP-UPS DE MENSAGENS ===================== */
 .msg-pops {

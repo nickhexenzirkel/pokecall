@@ -103,6 +103,17 @@
 
     <main class="stage">
       <div id="grid" class="grid"></div>
+      <!-- Modo Expandido: a tela compartilhada preenche o palco, mantendo chat e controles -->
+      <div id="theater" class="theater hidden">
+        <video id="theater-video" autoplay playsinline></video>
+        <div class="theater-bar">
+          <span id="theater-name" class="theater-name"></span>
+          <div class="theater-actions">
+            <button id="theater-fs" class="viewer-btn" title="Tela cheia" data-icon="expand"></button>
+            <button id="theater-close" class="viewer-btn" title="Voltar" data-icon="close"></button>
+          </div>
+        </div>
+      </div>
     </main>
 
     <aside id="chat-panel" class="chat-panel">
@@ -214,6 +225,7 @@
   <div class="viewer-bar">
     <span id="viewer-name" class="viewer-name"></span>
     <div class="viewer-actions">
+      <button id="viewer-chat-toggle" class="viewer-btn" title="Mostrar/ocultar chat" data-icon="chat"></button>
       <button id="viewer-fs" class="viewer-btn" title="Tela cheia" data-icon="expand"></button>
       <button id="viewer-close" class="viewer-btn" title="Fechar (Esc)" data-icon="close"></button>
     </div>
