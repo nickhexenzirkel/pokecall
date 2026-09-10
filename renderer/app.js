@@ -86,6 +86,97 @@ const resumeAudio = () => { if (audioCtx && audioCtx.state === 'suspended') audi
 document.addEventListener('click', resumeAudio);
 document.addEventListener('keydown', resumeAudio);
 
+/* ======================= EFEITOS SONOROS ======================= *
+ * Sons curtinhos gerados na hora (sem arquivos): entrar/sair da sala e
+ * inicio/fim de compartilhamento. Nada de som para mensagens de chat.  */
+
+let sfxGain = null;
+let sfxEnabled = localStorage.getItem('pokecall.sfx') !== '0';
+let lastSfxAt = 0;
+
+function setSfxEnabled(on) {
+  sfxEnabled = !!on;
+  localStorage.setItem('pokecall.sfx', on ? '1' : '0');
+}
+
+function ensureSfx() {
+  ensureAudio();
+  if (!audioCtx) return null;
+  if (!sfxGain) {
+    sfxGain = audioCtx.createGain();
+    sfxGain.gain.value = 0.3;           // discreto de proposito
+    sfxGain.connect(audioCtx.destination); // fora do masterGain: nao entra na captura
+  }
+  return sfxGain;
+}
+
+// notes: [{ f, to?, at?, dur?, vol?, type? }] — f em Hz, at/dur em segundos.
+function playTone(notes, gain = 1) {
+  if (!sfxEnabled) return;
+  const out = ensureSfx();
+  if (!out) return;
+  const now = performance.now();
+  if (now - lastSfxAt < 60) return;   // evita empilhar sons no mesmo instante
+  lastSfxAt = now;
+
+  const t0 = audioCtx.currentTime + 0.02;
+  for (const n of notes) {
+    const start = t0 + (n.at || 0);
+    const dur = n.dur || 0.16;
+    const osc = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    osc.type = n.type || 'sine';
+    osc.frequency.setValueAtTime(n.f, start);
+    if (n.to) osc.frequency.exponentialRampToValueAtTime(n.to, start + dur);
+    const peak = Math.max(0.001, (n.vol == null ? 1 : n.vol) * gain);
+    g.gain.setValueAtTime(0.0001, start);
+    g.gain.exponentialRampToValueAtTime(peak, start + 0.014);
+    g.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+    osc.connect(g);
+    g.connect(out);
+    osc.start(start);
+    osc.stop(start + dur + 0.05);
+  }
+}
+
+const SFX = {
+  // Voce entrou na sala: acorde subindo, alegre.
+  enterRoom: () => playTone([
+    { f: 523.25, at: 0.00, dur: 0.14, vol: 0.5 },
+    { f: 659.25, at: 0.09, dur: 0.14, vol: 0.5 },
+    { f: 783.99, at: 0.18, dur: 0.26, vol: 0.45 },
+  ]),
+  // Alguem chegou: dois toques subindo, curtinhos.
+  peerJoin: () => playTone([
+    { f: 587.33, at: 0.00, dur: 0.12, vol: 0.4 },
+    { f: 880.00, at: 0.08, dur: 0.18, vol: 0.35 },
+  ]),
+  // Alguem saiu: dois toques descendo.
+  peerLeave: () => playTone([
+    { f: 659.25, at: 0.00, dur: 0.12, vol: 0.35 },
+    { f: 440.00, at: 0.08, dur: 0.20, vol: 0.3 },
+  ]),
+  // Alguem começou a compartilhar: "swoosh" subindo + brilho.
+  shareStart: () => playTone([
+    { f: 330, to: 880, at: 0.00, dur: 0.22, vol: 0.28, type: 'triangle' },
+    { f: 1046.5, at: 0.16, dur: 0.22, vol: 0.3 },
+  ]),
+  // Compartilhamento acabou: descendo, mais discreto.
+  shareStop: () => playTone([
+    { f: 740, to: 330, at: 0.00, dur: 0.24, vol: 0.22, type: 'triangle' },
+  ]),
+  // Voce começou a compartilhar: confirmacao suave.
+  shareSelf: () => playTone([
+    { f: 660, at: 0.00, dur: 0.12, vol: 0.3, type: 'triangle' },
+    { f: 990, at: 0.07, dur: 0.18, vol: 0.25, type: 'triangle' },
+  ]),
+  // Caiu a conexao com o servidor.
+  disconnect: () => playTone([
+    { f: 440, at: 0.00, dur: 0.16, vol: 0.35, type: 'triangle' },
+    { f: 293.66, at: 0.12, dur: 0.30, vol: 0.35, type: 'triangle' },
+  ]),
+};
+
 /* ======================= ELEMENTOS ======================= */
 
 const $ = (id) => document.getElementById(id);
@@ -420,6 +511,7 @@ function connectSignaling(server) {
     if (selfId) {
       setBadge('bad', 'desconectado');
       addSystemChat('Você foi desconectado do servidor.');
+      SFX.disconnect();
     } else {
       setLobbyStatus('Não foi possível conectar ao servidor. Ele está rodando?', true);
     }
@@ -441,6 +533,7 @@ function handleSignal(msg) {
 
     case 'peer-joined':
       addSystemChat(`${msg.name} entrou na call.`);
+      SFX.peerJoin();
       createPeer(msg.id, msg.name, msg.avatar);
       updatePeerCount();
       updateConnBadge();
@@ -450,6 +543,7 @@ function handleSignal(msg) {
       const st = peers.get(msg.id);
       if (st) {
         addSystemChat(`${st.name} saiu da call.`);
+        SFX.peerLeave();
         closePeer(msg.id);
       }
       updatePeerCount();
@@ -1044,6 +1138,7 @@ function enterCall() {
   setupSelfAnalyser(selfState);
   updatePeerCount();
   updateConnBadge();
+  SFX.enterRoom();
 }
 
 function createTile(state) {
@@ -1119,8 +1214,10 @@ function showVideo(state) {
   const t = state.tile;
   if (!t) return;
   const v = t.video;
+  const jaEstava = t.root.classList.contains('has-video');
   if (v.srcObject !== state.videoStream) v.srcObject = state.videoStream;
   t.root.classList.add('has-video');
+  if (!jaEstava) (state.id === 'self-ui' ? SFX.shareSelf : SFX.shareStart)();
   pushOverlayState();
   // Garante a reprodução assim que os metadados/quadros chegam (evita tela preta).
   const tryPlay = () => v.play().catch(() => {});
@@ -1156,6 +1253,7 @@ function showVideo(state) {
 function hideVideo(state) {
   const t = state.tile;
   if (!t) return;
+  if (t.root.classList.contains('has-video') && state.id !== 'self-ui') SFX.shareStop();
   t.root.classList.remove('has-video');
   pushOverlayState();
   t.video.srcObject = null;
@@ -1855,6 +1953,7 @@ async function openSettings() {
   const volPct = Math.round(parseFloat(localStorage.getItem('pokecall.volume') ?? '1') * 100);
   $('set-volume').value = volPct;
   $('vol-label').textContent = volPct + '%';
+  $('set-sfx').checked = sfxEnabled;
 }
 
 $('set-input').addEventListener('change', (e) => setInputDevice(e.target.value));
@@ -1863,6 +1962,10 @@ $('set-volume').addEventListener('input', (e) => {
   const pct = parseInt(e.target.value, 10);
   $('vol-label').textContent = pct + '%';
   setMasterVolume(pct / 100);
+});
+$('set-sfx').addEventListener('change', (e) => {
+  setSfxEnabled(e.target.checked);
+  if (e.target.checked) SFX.peerJoin(); // previa do som
 });
 
 async function setInputDevice(deviceId) {
