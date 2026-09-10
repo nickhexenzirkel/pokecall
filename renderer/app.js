@@ -28,12 +28,19 @@ const ICE_SERVERS = [
 const DEFAULT_SERVER = 'wss://call.centraluniko.com.br';
 
 // Presets de qualidade do compartilhamento de tela.
+// ultra = nitidez acima de tudo: bitrate alto, codec VP9 e NUNCA reduzir a
+// resolução (prefere perder quadros a borrar a imagem). Exige rede boa.
 const QUALITY = {
   '1080p60': { w: 1920, h: 1080, fps: 60, bitrate: 4_000_000 },
   '1440p60': { w: 2560, h: 1440, fps: 60, bitrate: 6_000_000 },
   '1080p30': { w: 1920, h: 1080, fps: 30, bitrate: 2_500_000 },
   'source':  { w: 3840, h: 2160, fps: 60, bitrate: 8_000_000 },
+  '1440p-ultra': { w: 2560, h: 1440, fps: 60, bitrate: 25_000_000, ultra: true },
+  '2160p-ultra': { w: 3840, h: 2160, fps: 60, bitrate: 50_000_000, ultra: true },
 };
+
+// Codecs preferidos no modo ultra (VP9 aguenta 2K/4K muito melhor que VP8).
+const ULTRA_CODECS = ['video/VP9', 'video/AV1', 'video/H264'];
 
 /* ======================= ESTADO ======================= */
 
@@ -502,7 +509,7 @@ function createPeer(peerId, name, avatar) {
   if (localScreenStream) {
     for (const track of localScreenStream.getVideoTracks()) {
       state.screenSender = pc.addTrack(track, localScreenStream);
-      applyScreenEncoding(state.screenSender);
+      applyScreenEncoding(state.screenSender, null, null, pc);
     }
     // Também envia o ÁUDIO da tela (senão quem entra depois vê mas não ouve).
     for (const track of localScreenStream.getAudioTracks()) {
@@ -781,7 +788,7 @@ async function startScreenShare(sourceId) {
     if (!state.pc) continue; // pula a ficha "self-ui" (sem conexao)
     for (const t of stream.getVideoTracks()) {
       state.screenSender = state.pc.addTrack(t, stream);
-      applyScreenEncoding(state.screenSender, q, hint);
+      applyScreenEncoding(state.screenSender, q, hint, state.pc);
     }
     for (const t of stream.getAudioTracks()) {
       state.pc.addTrack(t, stream);
@@ -865,7 +872,7 @@ async function shareVideoFile(file) {
     for (const t of stream.getVideoTracks()) {
       t.contentHint = hint;
       state.screenSender = state.pc.addTrack(t, stream);
-      applyScreenEncoding(state.screenSender, q, hint);
+      applyScreenEncoding(state.screenSender, q, hint, state.pc);
     }
     for (const t of stream.getAudioTracks()) {
       state.pc.addTrack(t, stream);
@@ -879,20 +886,47 @@ async function shareVideoFile(file) {
 }
 
 // Define bitrate alto, framerate e como degradar sob rede ruim.
-async function applyScreenEncoding(sender, q, hint) {
+async function applyScreenEncoding(sender, q, hint, pc) {
   if (!sender) return;
   q = q || QUALITY[$('quality-select').value] || QUALITY['1080p60'];
   hint = hint || $('hint-select').value;
+  if (q.ultra) preferUltraCodec(pc, sender);
   try {
     const params = sender.getParameters();
     if (!params.encodings || params.encodings.length === 0) params.encodings = [{}];
     params.encodings[0].maxBitrate = q.bitrate;
     params.encodings[0].maxFramerate = q.fps;
+    if (q.ultra) {
+      // Manda a imagem em tamanho cheio, com prioridade de rede maxima.
+      params.encodings[0].scaleResolutionDownBy = 1;
+      params.encodings[0].networkPriority = 'high';
+      params.encodings[0].priority = 'high';
+    }
     // 'motion' = prioriza fluidez; 'detail' = prioriza resolucao/nitidez.
-    params.degradationPreference = hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
+    // No ultra a resolucao nunca cai (perde quadros antes de borrar).
+    params.degradationPreference =
+      q.ultra || hint === 'detail' ? 'maintain-resolution' : 'maintain-framerate';
     await sender.setParameters(params);
   } catch (err) {
     console.warn('applyScreenEncoding', err);
+  }
+}
+
+// No modo ultra, pede VP9/AV1 para o transceiver da tela. VP8 (padrao) borra
+// muito em 2K/4K mesmo com bitrate alto. Vale para a proxima negociacao.
+function preferUltraCodec(pc, sender) {
+  if (!pc || !sender || !RTCRtpSender.getCapabilities) return;
+  try {
+    const tr = pc.getTransceivers().find((t) => t.sender === sender);
+    if (!tr || !tr.setCodecPreferences) return;
+    const codecs = RTCRtpSender.getCapabilities('video').codecs;
+    const rank = (c) => {
+      const i = ULTRA_CODECS.indexOf(c.mimeType);
+      return i === -1 ? ULTRA_CODECS.length : i;
+    };
+    tr.setCodecPreferences([...codecs].sort((a, b) => rank(a) - rank(b)));
+  } catch (err) {
+    console.warn('preferUltraCodec', err);
   }
 }
 
