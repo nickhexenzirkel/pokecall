@@ -183,14 +183,24 @@ O Robô de Música **não precisa instalar nada novo** no VPS: o servidor só
 procura o vídeo no YouTube e diz para os apps o que tocar e em que segundo.
 O áudio sai no PC de cada pessoa, pelo player oficial do YouTube (escondido).
 
-Para atualizar o servidor depois de mexer no código:
+Para atualizar o servidor depois de mexer no código, do **seu PC**, dentro da
+pasta do projeto (troque `root` pelo seu usuário do VPS):
 
 ```bash
-cd /opt/pokecall
-git pull                 # ou envie os arquivos de novo (Passo 2)
-pm2 restart pokecall
-curl -s https://call.SEUDOMINIO.com.br/player.html | head -3   # deve devolver HTML
+# 1. manda os arquivos do servidor
+scp server/signaling.js server/music.js server/player.html root@call.SEUDOMINIO.com.br:/opt/pokecall/server/
+
+# 2. reinicia
+ssh root@call.SEUDOMINIO.com.br "pm2 restart pokecall"
+
+# 3. confere (tem que devolver HTML)
+curl -s https://call.SEUDOMINIO.com.br/player.html | head -3
 ```
+
+Se você não entra como root, mande para `/tmp/` e depois, no VPS:
+`sudo mv /tmp/signaling.js /tmp/music.js /tmp/player.html /opt/pokecall/server/`.
+
+Não precisa rodar `npm install` — a música não trouxe dependência nova.
 
 Se o `player.html` não abrir, a música não toca — confira se o nginx/apache
 está encaminhando **tudo** para o Node (e não só o WebSocket).
