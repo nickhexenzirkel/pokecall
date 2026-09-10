@@ -1159,25 +1159,44 @@ $('viewer-chat-form').addEventListener('submit', (e) => {
 });
 
 // Notificações empilhadas (uma sobre a outra), só enquanto o vídeo está aberto.
-function notifyViewer(name, text) {
+// Mesmo visual do chat/pop-up: foto da pessoa + nome + mensagem.
+function notifyViewer(name, text, avatar) {
   const box = $('viewer-toast');
   if (!box || $('viewer').classList.contains('hidden')) return;
   box.classList.remove('hidden');
 
   const el = document.createElement('div');
   el.className = 'viewer-msg';
-  const who = document.createElement('b');
-  who.textContent = name + ': ';
-  el.appendChild(who);
-  renderMessageContent(el, text); // mostra emotes também
 
+  const av = document.createElement('span');
+  av.className = 'chat-av';
+  if (avatar && AVATARS.includes(avatar)) {
+    const img = document.createElement('img');
+    img.src = avatarSrc(avatar);
+    img.alt = '';
+    av.appendChild(img);
+  } else {
+    av.textContent = initials(name);
+  }
+
+  const body = document.createElement('div');
+  body.className = 'chat-body';
+  const who = document.createElement('span');
+  who.className = 'who';
+  who.textContent = name;
+  const txt = document.createElement('span');
+  txt.className = 'chat-text';
+  renderMessageContent(txt, text); // mostra emotes também
+  body.append(who, txt);
+
+  el.append(av, body);
   box.appendChild(el);
   while (box.children.length > 10) box.removeChild(box.firstChild);
 
   setTimeout(() => {
     el.classList.add('leaving');
     setTimeout(() => el.remove(), 600);
-  }, 8000);
+  }, 10000);
 }
 
 // Toca UMA faixa de áudio de um participante. Chamado para CADA faixa
@@ -1356,7 +1375,7 @@ function addChat(who, text, avatar) {
   box.appendChild(el);
   box.scrollTop = box.scrollHeight;
 
-  notifyViewer(who, text);           // notificação dentro do vídeo em tela cheia
+  notifyViewer(who, text, avatar);   // notificação dentro do vídeo em tela cheia
 }
 
 function addSystemChat(text) {

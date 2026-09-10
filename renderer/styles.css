@@ -669,21 +669,30 @@ input[type="range"]::-webkit-slider-thumb {
 /* Notificação discreta da última mensagem, sobre o vídeo */
 .viewer-toast {
   position: absolute; left: 20px; bottom: 96px; z-index: 5;
-  display: flex; flex-direction: column; gap: 8px;
-  max-width: min(420px, 70%);
+  display: flex; flex-direction: column; gap: 10px;
+  width: 380px; max-width: 70%;
   pointer-events: none;
 }
 .viewer-msg {
-  padding: 10px 14px; border-radius: 12px;
-  background: rgba(0,0,0,0.7); backdrop-filter: blur(6px);
-  color: #fff; font-size: 13px; line-height: 1.35;
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 12px 14px; border-radius: 14px;
+  background: rgba(0,0,0,0.72); backdrop-filter: blur(6px);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.08);
   border-left: 3px solid var(--accent);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
   animation: toast-in 0.25s ease;
   transition: opacity 0.6s ease;
 }
 .viewer-msg.leaving { opacity: 0; }
-.viewer-msg b { color: var(--accent); }
-.viewer-msg .chat-emote { height: 20px; vertical-align: middle; }
+.viewer-msg .chat-av { width: 38px; height: 38px; font-size: 13px; }
+.viewer-msg .chat-body .who { font-size: 14px; }
+.viewer-msg .chat-body .chat-text {
+  font-size: 15px; line-height: 1.4;
+  display: -webkit-box; -webkit-line-clamp: 5; -webkit-box-orient: vertical; overflow: hidden;
+}
+.viewer-msg .chat-emote { height: 24px; vertical-align: middle; }
+.viewer-msg .chat-text.only-emotes .chat-emote { height: 48px; }
 
 /* Botões da telha (aparecem no hover, quando há vídeo) */
 .tile-actions {
