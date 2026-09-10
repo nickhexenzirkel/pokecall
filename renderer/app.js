@@ -1006,21 +1006,25 @@ $('viewer-chat-form').addEventListener('submit', (e) => {
   input.value = '';
 });
 
-// Notificação discreta da última mensagem, só enquanto o vídeo está aberto.
-let viewerToastTimer = null;
+// Notificações empilhadas (uma sobre a outra), só enquanto o vídeo está aberto.
 function notifyViewer(name, text) {
-  const t = $('viewer-toast');
-  if (!t || $('viewer').classList.contains('hidden')) return;
-  t.innerHTML = '';
+  const box = $('viewer-toast');
+  if (!box || $('viewer').classList.contains('hidden')) return;
+  box.classList.remove('hidden');
+
+  const el = document.createElement('div');
+  el.className = 'viewer-msg';
   const who = document.createElement('b');
   who.textContent = name + ': ';
-  t.appendChild(who);
-  renderMessageContent(t, text); // mostra emotes também
-  t.classList.remove('hidden', 'leaving');
-  clearTimeout(viewerToastTimer);
-  viewerToastTimer = setTimeout(() => {
-    t.classList.add('leaving');
-    setTimeout(() => t.classList.add('hidden'), 600);
+  el.appendChild(who);
+  renderMessageContent(el, text); // mostra emotes também
+
+  box.appendChild(el);
+  while (box.children.length > 5) box.removeChild(box.firstChild);
+
+  setTimeout(() => {
+    el.classList.add('leaving');
+    setTimeout(() => el.remove(), 600);
   }, 4000);
 }
 
