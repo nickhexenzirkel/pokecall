@@ -2164,8 +2164,14 @@ function aplicarNoPlayer(trocouDeMusica) {
     return;
   }
 
-  if (musicState.paused) toPlayer('pause');
-  else { toPlayer('seek', { ms: expectedMusicMs() }); toPlayer('play'); }
+  if (musicState.paused) { toPlayer('pause'); return; }
+
+  // Nada de mandar "seek" à toa: qualquer mudança na sala (alguém pôs uma
+  // música na fila, por exemplo) chega aqui, e mexer no ponto do player faz
+  // ele rebufferizar — é aquela travadinha. Só acerta se estiver fora de
+  // sincronia de verdade.
+  toPlayer('play');
+  corrigirAtraso();
 }
 
 function applyMusic(msg) {
